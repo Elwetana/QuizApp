@@ -18,9 +18,14 @@ enum FetchType: int
     case FetchScoreTotal = 3;
     case GetActiveRound = 4;
     case FetchQuestions = 5;
+    case ExtendCooldown = 6;
+    case SubmitGuess = 7;
+    case RenameTeam = 8;
+    case UpdateRound = 9;
+    case TotalRound = 10;
 }
 
-function pg()
+function pg(): ?PDO
 {
     static $pdo = null; global $DB_HOST,$DB_PORT,$DB_NAME,$DB_USER,$DB_PASS;
     if ($pdo === null) {
@@ -36,13 +41,17 @@ function pg()
 /**
  * @param $name FetchType
  * @param $team_id ?string
+ * @param string|null $letter
+ * @param string|null $answer
  * @return bool|array
  */
-function fetch_db_data(FetchType $name, string $team_id=null): bool|array
+function fetch_db_data(FetchType $name, string $team_id=null, string $letter=null, string $answer=null): bool|array
 {
     $sql = [
         FetchType::FetchTeam->value => <<<EOL
-    SELECT * FROM teams WHERE team_id=:t;
+    SELECT *, cooldown_end > now() as cooldown_active 
+    FROM teams 
+    WHERE team_id=:t;
 EOL,
         FetchType::FetchActions->value => <<<EOL
     SELECT time,round,letter,answered,points 
@@ -74,17 +83,126 @@ EOL,
         join rounds using(round)
     WHERE active = 1
     ORDER BY letter
+EOL,
+        FetchType::ExtendCooldown->value => /** @lang PostgreSQL */ <<<EOL
+    with v as (
+        select team_id, case when cooldown_end > now() then cooldown_length else 30 end as cl
+        from teams
+        where team_id = :t
+    )
+    update
+        teams
+    set
+        cooldown_end = now() + cl * interval '1 second',
+        cooldown_length = least(480, 2 * cl)
+    from v
+        where v.team_id = teams.team_id
+    returning cooldown_end;    
+EOL,
+        FetchType::SubmitGuess->value => /** @lang PostgreSQL */ <<<EOL
+    with check_answer as (
+        select
+            round, letter,
+            :a ~ answer as is_match,
+            value,
+            case when started + length * interval '1 second' < now() then 0.5 else 1 end as hint1_mod,
+            case when started + 2 * length * interval '1 second' < now() then 0.5 else 1 end as hint2_mod
+        from
+            questions
+            join rounds using (round)
+        where active = 1 and letter = :l
+    )
+    insert into
+        actions(team_id, time, round, letter, answered, points)
+    select :t, now(), round, letter, :a, case when is_match then value * hint1_mod * hint2_mod else -1 end
+    from check_answer
+    returning points;
+EOL,
+        FetchType::RenameTeam->value => /** @lang PostgreSQL */ <<<EOL
+    with is_active as (
+        select max(case when active = 2 then 0 else active end) as a
+        from rounds
+    )
+    update teams set name = case when is_active.a = 0 and not locked then :a else name end
+    from is_active
+    where team_id = :t
+    returning is_active.a = 0 and not locked as updated;
+EOL,
+        FetchType::UpdateRound->value => /** @lang PostgreSQL */ <<<EOL
+    with v as (
+        select
+            round,
+            case when :a - active = 1 then active + 1 else active end as new_active,
+            :a - active = 1 as updated
+        from rounds
+        where round=:t
+    )
+    update rounds
+    set 
+        active = new_active,
+        started = case when updated and new_active = 1 then now() else started end        
+    from v
+    where v.round = rounds.round
+    returning updated;
+EOL,
+        FetchType::TotalRound->value => /** @lang PostgreSQL */ <<<EOL
+    with
+        n_teams as (
+            select count(1) as n
+            from teams
+            where not is_admin
+        ),
+        cur_round as (
+            select round, value, started
+            from rounds
+            where round = :t
+        ),
+        scores as (
+            select sum(points) as s, max(extract(epoch from time - started)) as t, team_id
+            from actions
+            join cur_round using(round)
+            where points > 0
+            group by team_id
+        ),
+        all_scores as (
+            select team_id, coalesce(s, 0) as score, coalesce(t, 9999) as tiebreak
+            from teams
+            left join scores using(team_id)
+            where not is_admin
+        ),
+        ranked as (
+            select *, rank() over w as r
+            from all_scores
+            window w as (order by score desc, tiebreak asc)
+        )
+    insert into teams_per_round(team_id, round, score) 
+    select team_id, round, value * 100 + (ceil(n_teams.n / 2) - r) as score
+    from ranked, n_teams, cur_round
+    where r <= ceil(n_teams.n / 2)
+    returning team_id;
 EOL
-
     ];
+
+    // classify which should return a single row
+    $single = [
+        FetchType::FetchTeam->value,
+        FetchType::GetActiveRound->value,
+        FetchType::SubmitGuess->value,
+        FetchType::ExtendCooldown->value,
+        FetchType::RenameTeam->value,
+        FetchType::UpdateRound->value
+    ];
+
     $stmt = pg()->prepare($sql[$name->value]);
     $params = ($team_id === null) ? null : [':t' => $team_id];
+    if($answer !== null) $params[':a'] = $answer;
+    if($letter !== null) $params[':l'] = $letter;
     $stmt->execute($params);
+    if (in_array($name->value, $single, true)) {
+        return $stmt->fetch();
+    }
     return $stmt->fetchAll();
 }
-
-
-
 
 function verify_team(): ?array
 {
@@ -93,27 +211,29 @@ function verify_team(): ?array
         return null;
     }
 
-    $teamRow = fetch_db_data('fetch_team', team_id: strtolower($team));
+    $teamRow = fetch_db_data(FetchType::FetchTeam, team_id: strtolower($team));
     if (!$teamRow) {
         return null;
     }
     return $teamRow;
 }
 
-function respond_json($data,$code=200) {
+function respond_json($data,$code=200): void
+{
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT);
-    exit;
 }
 
-function respond_forbidden() {
+#[NoReturn] function respond_forbidden(): void
+{
     http_response_code(403);
     echo "Error 403";
     exit;
 }
 
-function get_param($k, $default=null) {
+function get_param($k, $default=null)
+{
     return $_GET[$k] ?? $_POST[$k] ?? $default;
 }
 
@@ -127,7 +247,20 @@ function normalize_answer($s): string {
     return $s ?? '';
 }
 
-function html_base()
+function sanitize_team_name(string $name, int $maxLen=32): string
+{
+    // Keep letters (incl. accents), digits, space, underscore, dot, comma, dash
+    $clean = preg_replace('/[^\p{L}\p{N} _.,-]/u', '', $name);
+    $clean = trim($clean);
+
+    // Enforce max length
+    if (mb_strlen($clean, 'UTF-8') > $maxLen) {
+        $clean = mb_substr($clean, 0, $maxLen, 'UTF-8');
+    }
+    return $clean;
+}
+
+function html_base(): void
 {
     // Serve quiz.html (static) so JS/CSS can load separately
     $htmlPath = __DIR__ . '/quiz.html';
@@ -139,7 +272,6 @@ function html_base()
     header('Content-Type: text/html; charset=utf-8');
     // We do not template-inject team id; JS reads it from URL.
     readfile($htmlPath);
-    exit;
 }
 
 // ======== STATUS ========
@@ -155,69 +287,134 @@ function get_status($teamRow): array
     ];
 }
 
-function make_guess($team_row)
+function make_guess($team_row): array
 {
-    $letter = strtoupper((string)get_param('letter',''));
-
-
-    $roundRow = active_round_row($pdo);
-    if(!$roundRow) respond_json(['points'=>0,'reason'=>'no_active']);
-
-    $now = new DateTimeImmutable('now');
-    if(!empty($teamRow['cooldown_end']) && new DateTimeImmutable($teamRow['cooldown_end']) > $now){
-        respond_json(['points'=>0,'reason'=>'cooldown']);
+    if($team_row['cooldown_active'] === 't') {
+        return [
+            'points' => 0,
+            'reason'=>'cooldown_active'
+        ];
     }
 
-    // prevent duplicate successful answer
-    $st=$pdo->prepare('SELECT 1 FROM actions WHERE team_id=:t AND round=:r AND letter=:l AND points>0 LIMIT 1');
-    $st->execute([':t'=>$team, ':r'=>$roundRow['round'], ':l'=>$letter]);
-    if($st->fetchColumn()) respond_json(['points'=>0,'reason'=>'already_answered']);
-
-    // Fetch canonical regex answer
-    $st=$pdo->prepare('SELECT answer FROM questions WHERE round=:r AND letter=:l');
-    $st->execute([':r'=>$roundRow['round'], ':l'=>$letter]);
-    $regex = $st->fetchColumn();
+    $letter = strtoupper((string)get_param('letter',''));
+    if(($letter === '') || !preg_match('/^[A-Z]$/', $letter)) {
+        return [
+            'points' => 0,
+            'reason'=>'no_letter'
+        ];
+    }
 
     $raw = file_get_contents('php://input') ?: '';
     $norm = normalize_answer($raw);
-
-    $ok = false;
-    if($regex){
-        // Stored regex is applied to normalized string
-        $delim = '~';
-        $ok = @preg_match($delim.$regex.$delim.'i', $norm) === 1;
+    $award = fetch_db_data(FetchType::SubmitGuess, team_id: $team_row['team_id'], letter: $letter, answer: $norm);
+    if (!$award) { //either wrong letter or (much more likely) no active round
+        return [
+            'points' => 0,
+            'reason'=>'no_active'
+        ];
     }
 
-    $points = -1;
-    $pdo->beginTransaction();
-    try{
-        if($ok){
-            $base = max(0,(int)$roundRow['value']);
-            $len = max(1,(int)$roundRow['length']);
-            $started = new DateTimeImmutable($roundRow['started']);
-            $elapsed = max(0,$now->getTimestamp() - $started->getTimestamp());
-            $intervals = intdiv($elapsed, $len);
-            $div = 1; for($i=0;$i<$intervals;$i++) $div*=2;
-            $points = intdiv($base, $div);
-        } else {
-            $len = max(30,(int)$teamRow['cooldown_length']);
-            $newLen = min($len*2,480);
-            $upd=$pdo->prepare('UPDATE teams SET cooldown_end = NOW() + make_interval(secs=>:s), cooldown_length=:nl WHERE team_id=:t');
-            $upd->execute([':s'=>$len, ':nl'=>$newLen, ':t'=>$team]);
-        }
-        $ins=$pdo->prepare('INSERT INTO actions(team_id,time,round,letter,answered,points) VALUES(:t,NOW(),:r,:l,:a,:p)');
-        $ins->execute([':t'=>$team, ':r'=>$roundRow['round'], ':l'=>$letter, ':a'=>$raw, ':p'=>$points]);
-        $pdo->commit();
-        respond_json(['points'=>$points]);
-    }catch(Throwable $e){ if($pdo->inTransaction()) $pdo->rollBack(); respond_json(['error'=>'server_error'],500);}
-
+    if($award['points'] === "-1") {
+        fetch_db_data(FetchType::ExtendCooldown, team_id: $team_row['team_id']);
+    }
+    return [
+        'points' => 1,  //if we want to let the team know that they were successful, we would return $award here
+        'reason'=>'guess_submitted'
+    ];
 }
 
+function rename_team($teamRow): array
+{
+    $newName = sanitize_team_name(file_get_contents('php://input') ?: '');
+    $updated = fetch_db_data(FetchType::RenameTeam, team_id: $teamRow['team_id'], answer: $newName);
+    return [
+        'updated' => $updated['updated'] === 't'
+    ];
+}
+
+//ADMIN endpoints
+function update_round(): array
+{
+    $round = (int)get_param('round');
+    $newActive = (int)get_param('active'); // 0,1,2
+    $updated = fetch_db_data(FetchType::UpdateRound, team_id: $round, answer: $newActive);
+    if($updated['updated'] === 't' && $newActive === 2) {
+        $winners = fetch_db_data(FetchType::TotalRound, team_id: $round);
+        return [
+            'ok' => true,
+            'winners' => $winners
+        ];
+    }
+    return [
+        'ok' => $updated['updated'] === 't'
+    ];
+}
+
+function define_data(): array
+{
+    $payload = json_decode(file_get_contents('php://input') ?: '[]', true);
+    if(!is_array($payload))
+        return [
+            'ok'=>false,
+            'error'=>'bad_json'
+        ];
+
+    pg()->beginTransaction();
+    try{
+        if(isset($payload['teams'])) {
+            $ins=pg()->prepare('INSERT INTO teams(team_id,name,locked,is_admin,cooldown_end,cooldown_length) VALUES(:id,:name,COALESCE(:locked,false),COALESCE(:admin,false),NOW(),30)
+                                ON CONFLICT (team_id) DO UPDATE SET name=EXCLUDED.name, locked=EXCLUDED.locked, is_admin=EXCLUDED.is_admin');
+            foreach($payload['teams'] as $t) {
+                $ins->execute([':id'=>$t['team_id'],':name'=>$t['name']??null,':locked'=>$t['locked']??false,':admin'=>$t['is_admin']??false]);
+            }
+        }
+        if(isset($payload['rounds'])){
+            $ins=pg()->prepare('INSERT INTO rounds(round,name,length,active,started,value) VALUES(:r,:n,:l,0,NULL,:v)
+                                ON CONFLICT (round) DO UPDATE SET name=EXCLUDED.name, length=EXCLUDED.length, value=EXCLUDED.value');
+            foreach($payload['rounds'] as $r) {
+                $ins->execute([':r'=>$r['round'], ':n'=>$r['name']??null, ':l'=>$r['length'], ':v'=>$r['value']]);
+            }
+        }
+        if(isset($payload['questions'])) {
+            $del=pg()->prepare('DELETE FROM questions WHERE round=:r');
+            $ins=pg()->prepare('INSERT INTO questions(round,letter,question,hint1,hint2,answer) VALUES(:r,:l,:q,:h1,:h2,:a)');
+            // Group by round and replace questions for those rounds
+            $byRound=[]; foreach($payload['questions'] as $q){ $byRound[$q['round']][]=$q; }
+            foreach($byRound as $r=>$qs) {
+                $del->execute([':r'=>$r]);
+                foreach($qs as $q) {
+                    $ins->execute([':r'=>$q['round'],':l'=>$q['letter'],':q'=>$q['question'],':h1'=>$q['hint1']??null,':h2'=>$q['hint2']??null,':a'=>$q['answer']]);
+                }
+            }
+        }
+        pg()->commit();
+        return ['ok'=>true];
+    }
+    catch(Throwable $e) {
+        if(pg()->inTransaction())
+            pg()->rollBack();
+        return ['ok'=>false,'error'=>'server_error', 'ex' => $e];
+    }
+}
+
+function reset_data(): array
+{
+    pg()->beginTransaction();
+    try{
+        pg()->exec('DELETE FROM teams_per_round; DELETE FROM actions; UPDATE rounds SET active=0, started=NULL; UPDATE teams SET cooldown_end=NOW(), cooldown_length=30;');
+        pg()->commit();
+        return ['ok'=>true];
+    } catch(Throwable $e){
+        if(pg()->inTransaction())
+            pg()->rollBack();
+        return['ok'=>false, 'ex' => $e];
+    }
+}
 
 // ======== BOOTSTRAP ========
 $teamRow = verify_team();
 if(!$teamRow) {
-    respond_forbidden('Error 403');
+    respond_forbidden();
 }
 $cmd = strtolower((string)get_param('cmd', ''));
 $json = null;
@@ -231,303 +428,43 @@ switch ($cmd) {
         }
         $json = make_guess($teamRow);
         break;
-}
-
-
-
-if ($cmd === '') {
-    // Serve SPA shell
-    html_base();
-}
-
-
-
-// ======== RENAME ========
-if($cmd==='rename' && $_SERVER['REQUEST_METHOD']==='POST'){
-    // Only when no active round and team is not locked
-    $hasActive = $pdo->query('SELECT 1 FROM rounds WHERE active=1')->fetchColumn();
-    if($teamRow['locked'] || $hasActive){ respond_json(['ok'=>false]); }
-    $newName = trim(file_get_contents('php://input') ?: '');
-    if($newName===''){ respond_json(['ok'=>false]); }
-    $st=$pdo->prepare('UPDATE teams SET name=:n WHERE team_id=:t');
-    $st->execute([':n'=>$newName, ':t'=>$team]);
-    respond_json(['ok'=>true]);
-}
-
-// ======== ROUND (ADMIN) ========
-if($cmd==='round'){
-    if(!$teamRow['is_admin']) respond_forbidden();
-    $round = (int)get_param('round');
-    $newActive = (int)get_param('active'); // 0,1,2
-
-    $pdo->beginTransaction();
-    try{
-        $st=$pdo->prepare('SELECT active FROM rounds WHERE round=:r FOR UPDATE');
-        $st->execute([':r'=>$round]);
-        $cur = $st->fetch();
-        if(!$cur){ throw new RuntimeException('round_missing'); }
-        $curActive = (int)$cur['active'];
-
-        if($newActive===1){
-            // ensure no other active=1 exists
-            $other = $pdo->query('SELECT 1 FROM rounds WHERE active=1')->fetchColumn();
-            if($other){ throw new RuntimeException('another_active'); }
-            $st=$pdo->prepare('UPDATE rounds SET active=1, started=NOW() WHERE round=:r');
-            $st->execute([':r'=>$round]);
-        } elseif($newActive===0 || $newActive===2){
-            if($curActive!==1){ throw new RuntimeException('not_in_progress'); }
-            $st=$pdo->prepare('UPDATE rounds SET active=:a WHERE round=:r');
-            $st->execute([':a'=>$newActive, ':r'=>$round]);
-            if($newActive===2){
-                // End-of-round scoring
-                // 1) Per-team round score
-                $scores = [];
-                $res = $pdo->prepare('SELECT team_id, COALESCE(SUM(points),0) AS pts FROM actions WHERE round=:r AND points>0 GROUP BY team_id');
-                $res->execute([':r'=>$round]);
-                foreach($res as $row){ $scores[$row['team_id']] = (int)$row['pts']; }
-                if($scores){
-                    // 2) Successful guess times per team (ascending)
-                    $times = [];
-                    $res = $pdo->prepare('SELECT team_id, time FROM actions WHERE round=:r AND points>0 ORDER BY time ASC');
-                    $res->execute([':r'=>$round]);
-                    foreach($res as $row){ $times[$row['team_id']][] = $row['time']; }
-                    // 3) Questions count and value
-                    $qcount = (int)($pdo->prepare('SELECT COUNT(*) FROM questions WHERE round=:r')->execute([':r'=>$round])||1);
-                    $stQ = $pdo->prepare('SELECT COUNT(*) AS c FROM questions WHERE round=:r'); $stQ->execute([':r'=>$round]); $qcount = (int)$stQ->fetchColumn();
-                    $stV = $pdo->prepare('SELECT value FROM rounds WHERE round=:r'); $stV->execute([':r'=>$round]); $value = (int)$stV->fetchColumn();
-
-                    // 4) Order teams: by score desc, then earlier last success, then earlier 2nd last, etc., else random
-                    $teamIds = array_keys($scores);
-                    usort($teamIds, function($A,$B) use ($scores,$times){
-                        if($scores[$A]!==$scores[$B]) return $scores[$B] <=> $scores[$A];
-                        $ta = $times[$A] ?? []; $tb = $times[$B] ?? [];
-                        // compare from last success backward (earlier wins)
-                        for($i=1;;$i++){
-                            $ia = $ta[count($ta)-$i] ?? null; $ib = $tb[count($tb)-$i] ?? null;
-                            if($ia===null && $ib===null) break;
-                            if($ia===null) return -1; // A had fewer successes -> earlier by definition
-                            if($ib===null) return 1;
-                            if($ia !== $ib) return strcmp($ia,$ib); // earlier (smaller) first
-                        }
-                        return rand(-1,1);
-                    });
-
-                    // 5) Award first half (rounded up)
-                    $n = count($teamIds);
-                    $eligible = (int)ceil($n/2);
-                    $maxPossible = max(1, $qcount * max(1,$value));
-                    $ins = $pdo->prepare('INSERT INTO teams_per_round(team_id,round,score) VALUES(:t,:r,:s)');
-                    for($i=0;$i<$eligible;$i++){
-                        $tid = $teamIds[$i];
-                        $frac = ($scores[$tid]/$maxPossible)/10.0; // e.g., 12/20/10 = 0.06
-                        $final = $value + $frac; // decimal
-                        $centi = (int)round($final*100); // store as integer centipoints
-                        $ins->execute([':t'=>$tid, ':r'=>$round, ':s'=>$centi]);
-                    }
-                }
-            }
-        } else {
-            throw new RuntimeException('bad_active');
+    case 'rename':
+        if($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            respond_forbidden();
         }
-        $pdo->commit();
-        respond_json(['ok'=>true]);
-    }catch(Throwable $e){ if($pdo->inTransaction()) $pdo->rollBack(); respond_json(['ok'=>false,'error'=>$e->getMessage()],400); }
+        $json = rename_team($teamRow);
+        break;
+    case 'round':
+        if(!$teamRow['is_admin']) {
+            respond_forbidden();
+        }
+        $json = update_round();
+        break;
+    case 'define':
+        if(!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+            respond_forbidden();
+        }
+        $json = define_data();
+        break;
+    case 'reset':
+        if(!$teamRow['is_admin']) {
+            respond_forbidden();
+        }
+        $json = reset_data();
+        break;
+    default:
+        html_base();
+        exit();
 }
+respond_json($json);
 
-// ======== DEFINE (ADMIN) ========
-if($cmd==='define' && $_SERVER['REQUEST_METHOD']==='POST'){
-    if(!$teamRow['is_admin']) respond_forbidden();
-    $payload = json_decode(file_get_contents('php://input') ?: '[]', true);
-    if(!is_array($payload)) respond_json(['ok'=>false,'error'=>'bad_json'],400);
-    $pdo->beginTransaction();
-    try{
-        if(isset($payload['teams'])){
-            $ins=$pdo->prepare('INSERT INTO teams(team_id,name,locked,is_admin,cooldown_end,cooldown_length) VALUES(:id,:name,COALESCE(:locked,false),COALESCE(:admin,false),NOW(),30)
-                                ON CONFLICT (team_id) DO UPDATE SET name=EXCLUDED.name, locked=EXCLUDED.locked, is_admin=EXCLUDED.is_admin');
-            foreach($payload['teams'] as $t){ $ins->execute([':id'=>$t['team_id'],':name'=>$t['name']??null,':locked'=>$t['locked']??false,':admin'=>$t['is_admin']??false]); }
-        }
-        if(isset($payload['rounds'])){
-            $ins=$pdo->prepare('INSERT INTO rounds(round,name,length,active,started,value) VALUES(:r,:n,:l,0,NULL,:v)
-                                ON CONFLICT (round) DO UPDATE SET name=EXCLUDED.name, length=EXCLUDED.length, value=EXCLUDED.value');
-            foreach($payload['rounds'] as $r){ $ins->execute([':r'=>$r['round'], ':n'=>$r['name']??null, ':l'=>$r['length'], ':v'=>$r['value']]); }
-        }
-        if(isset($payload['questions'])){
-            $del=$pdo->prepare('DELETE FROM questions WHERE round=:r');
-            $ins=$pdo->prepare('INSERT INTO questions(round,letter,question,hint1,hint2,answer) VALUES(:r,:l,:q,:h1,:h2,:a)');
-            // Group by round and replace questions for those rounds
-            $byRound=[]; foreach($payload['questions'] as $q){ $byRound[$q['round']][]=$q; }
-            foreach($byRound as $r=>$qs){ $del->execute([':r'=>$r]); foreach($qs as $q){ $ins->execute([':r'=>$q['round'],':l'=>$q['letter'],':q'=>$q['question'],':h1'=>$q['hint1']??null,':h2'=>$q['hint2']??null,':a'=>$q['answer']]); } }
-        }
-        $pdo->commit();
-        respond_json(['ok'=>true]);
-    }catch(Throwable $e){ if($pdo->inTransaction()) $pdo->rollBack(); respond_json(['ok'=>false,'error'=>'server_error'],500);}
-}
+
+
+
 
 // ======== RESET (ADMIN) ========
 if($cmd==='reset'){
     if(!$teamRow['is_admin']) respond_forbidden();
-    $pdo->beginTransaction();
-    try{
-        $pdo->exec('DELETE FROM teams_per_round; DELETE FROM actions; UPDATE rounds SET active=0, started=NULL; UPDATE teams SET cooldown_end=NOW(), cooldown_length=30;');
-        $pdo->commit();
-        respond_json(['ok'=>true]);
-    }catch(Throwable $e){ if($pdo->inTransaction()) $pdo->rollBack(); respond_json(['ok'=>false],500);}
 }
 
 respond_json(['error'=>'unknown'],400);
-?>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<-- ?php
-
-
-
-
-
-// ======== ENDPOINTS ========
-function get_status($teamRow) {
-
-    $my_actions = fetch_db_data('fetch_actions', team_id: $teamRow['team']);
-    // Scoreboard: points by team per round and totals
-    $scoreSql =
-    $rows = pg()->query($scoreSql)->fetchAll();
-    $scoreboard = [];
-    foreach ($rows as $r) {
-        $tid = $r['team_id'];
-        if (!isset($scoreboard[$tid])) $scoreboard[$tid] = ['team_id'=>$tid,'per_round'=>[], 'total'=>0];
-        $scoreboard[$tid]['per_round'][(int)$r['round']] = (int)$r['points'];
-        $scoreboard[$tid]['total'] += (int)$r['points'];
-    }
-
-    // Also include current round and its config
-    $roundRow = pg()->query('SELECT round, value, active FROM rounds WHERE active > 0 ORDER BY active DESC LIMIT 1')->fetch();
-
-    return [
-        'team' => $teamRow,
-        'now' => (new DateTimeImmutable('now'))->format(DateTimeInterface::ATOM),
-        'current_round' => $roundRow,
-        'my_actions' => $my_actions,
-        'scoreboard' => array_values($scoreboard),
-    ];
-}
-
-function make_guess($teamRow) {
-    $question = (string) get_param('question');
-    $rawAnswer = file_get_contents('php://input') ?: '';
-
-    // Transaction for consistency
-    $pdo = pg();
-    $pdo->beginTransaction();
-    try {
-        // Reload team row FOR UPDATE (cooldowns may change)
-        $stmt = $pdo->prepare('SELECT team_id, is_admin, cooldown_end, cooldown_length FROM teams WHERE team_id = :t FOR UPDATE');
-        $stmt->execute([':t' => $team]);
-        $teamRow = $stmt->fetch();
-
-        $now = new DateTimeImmutable('now');
-        if ($teamRow['cooldown_end'] && new DateTimeImmutable($teamRow['cooldown_end']) > $now) {
-            $pdo->rollBack();
-            respond_json(['points'=>0, 'reason'=>'cooldown']);
-        }
-
-        // Check round active and get its config FOR UPDATE (we modify first_team potentially)
-        $stmt = $pdo->prepare('SELECT round, value, active FROM rounds WHERE round = :r FOR UPDATE');
-        $stmt->execute([':r' => $round]);
-        $roundRow = $stmt->fetch();
-        if (!$roundRow || (int)$roundRow['active'] <= 0) {
-            $pdo->rollBack();
-            respond_json(['points'=>0, 'reason'=>'inactive_round']);
-        }
-
-        // Check not already answered by this team for this (round,question)
-        $stmt = $pdo->prepare('SELECT 1 FROM actions WHERE team_id = :t AND round = :r AND letter = :q LIMIT 1');
-        $stmt->execute([':t'=>$team, ':r'=>$round, ':q'=>$question]);
-        if ($stmt->fetchColumn()) {
-            $pdo->rollBack();
-            respond_json(['points'=>0, 'reason'=>'already_answered']);
-        }
-
-        // Load canonical answer
-        $stmt = $pdo->prepare('SELECT answer FROM questions WHERE round = :r AND question = :q');
-        $stmt->execute([':r'=>$round, ':q'=>$question]);
-        $ansRow = $stmt->fetch();
-
-        $normUser = normalize_answer($rawAnswer);
-        $normDb   = normalize_answer($ansRow['answer'] ?? '');
-
-        $points = -1; // default = wrong
-        if ($ansRow && $normUser !== '' && $normUser === $normDb) {
-            // Correct — compute score
-            $base = (int)$roundRow['value'];
-            $active = max(1, (int)$roundRow['active']);
-            $score = intdiv($base, $active);
-            $points = $score;
-        } else {
-            // Wrong — start/extend cooldown
-            $len = max(30, (int)$teamRow['cooldown_length']);
-            $newLen = min($len * 2, 480);
-            $stmt = $pdo->prepare("UPDATE teams SET cooldown_end = NOW() + make_interval(secs => :len), cooldown_length = :new WHERE team_id = :t");
-            $stmt->execute([':len'=>$len, ':new'=>$newLen, ':t'=>$team]);
-        }
-
-        // Record action (store the raw text the user sent)
-        $stmt = $pdo->prepare('INSERT INTO actions(team_id, time, round, letter, answered, points) VALUES (:t, NOW(), :r, :q, :a, :p)');
-        $stmt->execute([':t'=>$team, ':r'=>$round, ':q'=>$question, ':a'=>$rawAnswer, ':p'=>$points]);
-
-        $pdo->commit();
-        respond_json(['points'=>$points]);
-    } catch (Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        respond_json(['error'=>'server_error','message'=>$e->getMessage()], 500);
-    }
-
-}
-
-// ======== REQUEST BOOTSTRAP ========
-
-
-if ($cmd === 'round') {
-    // Admin only
-    if (!$teamRow['is_admin']) { respond_forbidden('Error 403'); }
-    $round = (int) get_param('round');
-    $active = (int) get_param('active');
-
-    $pdo = pg();
-    $pdo->beginTransaction();
-    try {
-        // Reset all actives to 0, then set the specified round value
-        $pdo->exec('UPDATE rounds SET active = 0');
-        $stmt = $pdo->prepare('UPDATE rounds SET active = :a WHERE round = :r');
-        $stmt->execute([':a'=>$active, ':r'=>$round]);
-        $pdo->commit();
-        respond_json(['ok'=>true]);
-    } catch (Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        respond_json(['error'=>'server_error','message'=>$e->getMessage()], 500);
-    }
-}
-
-// Unknown command
-respond_json(['error'=>'unknown_command'], 400);
-? -->
