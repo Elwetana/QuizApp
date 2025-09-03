@@ -21,8 +21,10 @@ enum FetchType: int
     case ExtendCooldown = 6;
     case SubmitGuess = 7;
     case RenameTeam = 8;
-    case UpdateRound = 9;
-    case TotalRound = 10;
+    case CloseRound = 9;
+    case StartRound = 10;
+    case EndRound = 11;
+    case TotalRound = 12;
 }
 
 function pg(): ?PDO
@@ -68,7 +70,7 @@ EOL,
 EOL,
         FetchType::FetchScoreTotal->value => <<<EOL
     SELECT team_id, round, score 
-    FROM teams_per_round GROUP BY team_id;
+    FROM teams_per_round;
 EOL,
         FetchType::GetActiveRound->value => <<<EOL
     select * from rounds where active = 1;
@@ -128,22 +130,42 @@ EOL,
     where team_id = :t
     returning is_active.a = 0 and not locked as updated;
 EOL,
-        FetchType::UpdateRound->value => /** @lang PostgreSQL */ <<<EOL
+        FetchType::CloseRound->value => /** @lang PostgreSQL */ <<<EOL
+    update rounds
+    set active = 0
+    where round = :t
+    returning true;
+EOL,
+        FetchType::StartRound->value => /** @lang PostgreSQL */ <<<EOL
     with v as (
         select
             round,
-            case when :a - active = 1 then active + 1 else active end as new_active,
-            :a - active = 1 as updated
+            case when active = 0 then true else false end as can_start
         from rounds
-        where round=:t
+        where round = :t
     )
     update rounds
     set 
-        active = new_active,
-        started = case when updated and new_active = 1 then now() else started end        
+        started = case when can_start then now() else started end,
+        active = case when can_start then 1 else active end
     from v
     where v.round = rounds.round
-    returning updated;
+    returning can_start;
+EOL,
+        FetchType::EndRound->value => /** @lang PostgreSQL */ <<<EOL
+    with v as (
+        select
+            round,
+            case when active = 1 then true else false end as can_end
+        from rounds
+        where round = :t
+    )
+    update rounds
+    set 
+        active = case when can_end then 2 else active end
+    from v
+    where v.round = rounds.round
+    returning can_end;
 EOL,
         FetchType::TotalRound->value => /** @lang PostgreSQL */ <<<EOL
     with
@@ -157,10 +179,18 @@ EOL,
             from rounds
             where round = :t
         ),
+        last_attempts as (
+            select team_id, letter, max(time) as time
+            from actions
+                 join cur_round using(round)
+            group by team_id, letter
+        ),
         scores as (
             select sum(points) as s, max(extract(epoch from time - started)) as t, team_id
-            from actions
-            join cur_round using(round)
+            from
+                cur_round,
+                last_attempts
+                join actions using(team_id, letter, time)
             where points > 0
             group by team_id
         ),
@@ -190,13 +220,18 @@ EOL
         FetchType::SubmitGuess->value,
         FetchType::ExtendCooldown->value,
         FetchType::RenameTeam->value,
-        FetchType::UpdateRound->value
+        FetchType::CloseRound->value,
+        FetchType::StartRound->value,
+        FetchType::EndRound->value
     ];
 
+    $params = [];
+    if ($team_id !== null) $params[':t'] = $team_id;
+    if ($answer  !== null) $params[':a'] = $answer;
+    if ($letter  !== null) $params[':l'] = $letter;
+    if (!$params) $params = null;
+
     $stmt = pg()->prepare($sql[$name->value]);
-    $params = ($team_id === null) ? null : [':t' => $team_id];
-    if($answer !== null) $params[':a'] = $answer;
-    if($letter !== null) $params[':l'] = $letter;
     $stmt->execute($params);
     if (in_array($name->value, $single, true)) {
         return $stmt->fetch();
@@ -289,7 +324,7 @@ function get_status($teamRow): array
 
 function make_guess($team_row): array
 {
-    if($team_row['cooldown_active'] === 't') {
+    if($team_row['cooldown_active']) {
         return [
             'points' => 0,
             'reason'=>'cooldown_active'
@@ -328,17 +363,32 @@ function rename_team($teamRow): array
     $newName = sanitize_team_name(file_get_contents('php://input') ?: '');
     $updated = fetch_db_data(FetchType::RenameTeam, team_id: $teamRow['team_id'], answer: $newName);
     return [
-        'updated' => $updated['updated'] === 't'
+        'updated' => $updated['updated']
     ];
 }
+
 
 //ADMIN endpoints
 function update_round(): array
 {
     $round = (int)get_param('round');
     $newActive = (int)get_param('active'); // 0,1,2
-    $updated = fetch_db_data(FetchType::UpdateRound, team_id: $round, answer: $newActive);
-    if($updated['updated'] === 't' && $newActive === 2) {
+    $a = null;
+    switch ($newActive) {
+        case 0: //this does not make any sense gameplay wise, but it is admin's prerogative
+            $a = fetch_db_data(FetchType::CloseRound, team_id: $round);
+            break;
+        case 1:
+            $a = fetch_db_data(FetchType::StartRound, team_id: $round);
+            break;
+        case 2:
+            $a = fetch_db_data(FetchType::EndRound, team_id: $round);
+            break;
+        default:
+            respond_forbidden('Invalid active value');
+    }
+    $success = $a[array_key_first($a)];
+    if($success && $newActive === 2) {
         $winners = fetch_db_data(FetchType::TotalRound, team_id: $round);
         return [
             'ok' => true,
@@ -346,7 +396,8 @@ function update_round(): array
         ];
     }
     return [
-        'ok' => $updated['updated'] === 't'
+        'ok' => $success,
+        'aa' => $a
     ];
 }
 
@@ -457,14 +508,3 @@ switch ($cmd) {
         exit();
 }
 respond_json($json);
-
-
-
-
-
-// ======== RESET (ADMIN) ========
-if($cmd==='reset'){
-    if(!$teamRow['is_admin']) respond_forbidden();
-}
-
-respond_json(['error'=>'unknown'],400);

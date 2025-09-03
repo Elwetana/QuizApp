@@ -12,6 +12,9 @@ body {
     margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial;
     background: var(--bg); color: var(--text);
 }
+/* Tabs */
+.tab { display: none; }
+.tab.active { display: block; }
 header { position: sticky; top: 0; background: var(--bg); padding: .75rem; border-bottom: 1px solid #1f2937; }
 h1 { font-size: 1.25rem; margin: 0 0 .5rem 0; }
 nav#tabs { display: flex; gap: .5rem; }
@@ -25,6 +28,8 @@ label.inline { display: inline-grid; min-width: 8rem; }
 textarea, input, button { padding: .6rem .7rem; border-radius: .6rem; border: 1px solid #1f2937; background: #0b1220; color: var(--text); }
 button { cursor: pointer; }
 button.primary { background: var(--accent); color: #052e13; border-color: #14532d; font-weight: 700; }
+.row#questionButtons button.selected { outline: 2px solid var(--accent-2); }
+#roundButtons button.selected { outline: 2px solid var(--accent-2); }
 .hidden { display: none !important; }
 #scoreboard table { width: 100%; border-collapse: collapse; }
 #scoreboard th, #scoreboard td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }

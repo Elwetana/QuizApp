@@ -8,17 +8,18 @@
 </head>
 <body>
 <header>
-    <h1>Pub Quiz</h1>
+    <h1 id="caption"></h1>
     <nav id="tabs">
-        <button data-tab="situation" class="active">Situation</button>
-        <button data-tab="history">History</button>
+        <button data-tab="questions" class="active">Questions</button>
         <button data-tab="guess">Guess</button>
-        <button data-tab="round" id="adminTab" class="hidden">Round</button>
+        <button data-tab="situation">Situation</button>
+        <button data-tab="history">History</button>
+        <button data-tab="round" id="adminTab" class="hidden">Admin</button>
     </nav>
 </header>
 
 <main>
-    <section id="situation" class="tab active">
+    <section id="situation" class="tab">
         <div class="card">
             <h2>Scoreboard</h2>
             <div id="scoreboard"></div>
@@ -27,6 +28,7 @@
             <h2>Current Round</h2>
             <div id="currentRound"></div>
         </div>
+        
     </section>
 
     <section id="history" class="tab">
@@ -42,32 +44,36 @@
             <div id="questionButtons" class="row"></div>
             <label>
                 <span>Answer</span>
-                <textarea id="answer" rows="3" placeholder="Type your answer…"></textarea>
+                <textarea id="answer" rows="3" placeholder="Type your answer"></textarea>
             </label>
             <div class="row">
-                <label class="inline">
-                    <span>Round</span>
-                    <input type="number" id="roundInput" min="1" step="1">
-                </label>
-                <label class="inline">
-                    <span>Question</span>
-                    <input type="text" id="questionInput" maxlength="1" placeholder="A" />
-                </label>
                 <button id="submitGuess">Submit</button>
             </div>
             <div id="guessResult" class="result"></div>
         </div>
     </section>
 
+    <section id="questions" class="tab active">
+        <div class="card">
+            <h2>Questions</h2>
+            <div id="questionsList"></div>
+        </div>
+    </section>
+
     <section id="round" class="tab">
         <div class="card">
-            <h2>Admin: Set Active Round</h2>
+            <h2>Admin</h2>
             <div class="row" id="roundButtons"></div>
-            <label class="inline">
-                <span>Active value</span>
-                <input type="number" id="activeValue" min="0" step="1" value="0" />
-            </label>
-            <button id="setRound">Apply</button>
+            <div class="row admin-actions">
+                <button id="startRound">Start</button>
+                <button id="finishRound">Finish</button>
+                <button id="closeRound">Close</button>
+            </div>
+            <div class="row admin-actions">
+                <button id="resetBtn">Reset</button>
+                <button id="defineBtn">Define…</button>
+                <input type="file" id="defineFile" accept="application/json,.json" class="hidden" />
+            </div>
             <div id="roundResult" class="result"></div>
         </div>
     </section>
