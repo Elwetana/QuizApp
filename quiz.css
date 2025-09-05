@@ -30,9 +30,12 @@ button { cursor: pointer; }
 button.primary { background: var(--accent); color: #052e13; border-color: #14532d; font-weight: 700; }
 .row#questionButtons button.selected { outline: 2px solid var(--accent-2); }
 #roundButtons button.selected { outline: 2px solid var(--accent-2); }
+.q img { max-width: 100%; height: auto; display: block; margin-top: .5rem; border-radius: .4rem; border: 1px solid #1f2937; }
 .hidden { display: none !important; }
 #scoreboard table { width: 100%; border-collapse: collapse; }
 #scoreboard th, #scoreboard td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
+.tab#history table { width: 100%; border-collapse: collapse; }
+.tab#history th, .tab#history td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
 .result { margin-top: .5rem; min-height: 1.2rem; color: var(--muted); }
 #foot { color: var(--muted); display: block; padding: .5rem 1rem; }
 @media (min-width: 700px) { main { max-width: 900px; margin: 0 auto; } }

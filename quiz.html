@@ -11,7 +11,7 @@
     <h1 id="caption"></h1>
     <nav id="tabs">
         <button data-tab="questions" class="active">Questions</button>
-        <button data-tab="guess">Guess</button>
+        <button data-tab="guess" class="hidden">Guess</button>
         <button data-tab="situation">Situation</button>
         <button data-tab="history">History</button>
         <button data-tab="round" id="adminTab" class="hidden">Admin</button>
@@ -34,11 +34,11 @@
     <section id="history" class="tab">
         <div class="card">
             <h2>My History</h2>
-            <ul id="historyList"></ul>
+            <div id="historyList"></div>
         </div>
     </section>
 
-    <section id="guess" class="tab">
+    <section id="guess" class="tab hidden">
         <div class="card">
             <h2>Make a Guess</h2>
             <div id="questionButtons" class="row"></div>
@@ -73,6 +73,9 @@
                 <button id="resetBtn">Reset</button>
                 <button id="defineBtn">Define…</button>
                 <input type="file" id="defineFile" accept="application/json,.json" class="hidden" />
+            </div>
+            <div class="row admin-actions">
+                <button id="openMaster" class="primary">Quiz Master</button>
             </div>
             <div id="roundResult" class="result"></div>
         </div>

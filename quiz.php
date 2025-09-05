@@ -14,7 +14,7 @@ enum FetchType: int
 {
     case FetchTeam = 0;
     case FetchActions = 1;
-    case FetchScoreRound = 2;
+    case FetchRounds = 2;
     case FetchScoreTotal = 3;
     case GetActiveRound = 4;
     case FetchQuestions = 5;
@@ -47,7 +47,7 @@ function pg(): ?PDO
  * @param string|null $answer
  * @return bool|array
  */
-function fetch_db_data(FetchType $name, string $team_id=null, string $letter=null, string $answer=null): bool|array
+function fetch_db_data(FetchType $name, string $team_id=null, string $letter=null, string $answer=null, string $store=null): bool|array
 {
     $sql = [
         FetchType::FetchTeam->value => <<<EOL
@@ -56,17 +56,14 @@ function fetch_db_data(FetchType $name, string $team_id=null, string $letter=nul
     WHERE team_id=:t;
 EOL,
         FetchType::FetchActions->value => <<<EOL
-    SELECT time,round,letter,answered,points 
+    SELECT time,round,letter,answered 
     FROM actions 
     WHERE team_id=:t 
     ORDER BY time DESC;
 EOL,
-        FetchType::FetchScoreRound->value => <<<EOL
-    SELECT team_id, COALESCE(SUM(points),0) AS pts 
-    FROM actions
-        join rounds using(round)
-    WHERE active = 1 AND points > 0 
-    GROUP BY team_id
+        FetchType::FetchRounds->value => <<<EOL
+    SELECT round, active, name, value 
+    FROM rounds;
 EOL,
         FetchType::FetchScoreTotal->value => <<<EOL
     SELECT team_id, round, score 
@@ -116,7 +113,7 @@ EOL,
     )
     insert into
         actions(team_id, time, round, letter, answered, points)
-    select :t, now(), round, letter, :a, case when is_match then value * hint1_mod * hint2_mod else -1 end
+    select :t, now(), round, letter, :s, case when is_match then value * hint1_mod * hint2_mod else -1 end
     from check_answer
     returning points;
 EOL,
@@ -229,6 +226,7 @@ EOL
     if ($team_id !== null) $params[':t'] = $team_id;
     if ($answer  !== null) $params[':a'] = $answer;
     if ($letter  !== null) $params[':l'] = $letter;
+    if ($store   !== null) $params[':s'] = $store;
     if (!$params) $params = null;
 
     $stmt = pg()->prepare($sql[$name->value]);
@@ -284,8 +282,8 @@ function normalize_answer($s): string {
 
 function sanitize_team_name(string $name, int $maxLen=32): string
 {
-    // Keep letters (incl. accents), digits, space, underscore, dot, comma, dash
-    $clean = preg_replace('/[^\p{L}\p{N} _.,-]/u', '', $name);
+    // Keep letters (incl. accents), digits, space, underscore, dot, comma, dash, colon
+    $clean = preg_replace('/[^\p{L}\p{N} _.,:-]/u', '', $name);
     $clean = trim($clean);
 
     // Enforce max length
@@ -316,32 +314,41 @@ function get_questions()
     $questions = fetch_db_data(FetchType::FetchQuestions);
 
     foreach ($questions as &$q) {
+        $path = '';
         if (isset($q['question']) && str_starts_with($q['question'], 'file://')) {
             $path = substr($q['question'], 7); // strip "file://"
+        }
+        elseif (isset($q['hint1']) && str_starts_with($q['hint1'], 'file://')) {
+            $path = substr($q['hint1'], 7); // strip "file://"
+        }
+        elseif (isset($q['hint2']) && str_starts_with($q['hint2'], 'file://')) {
+            $path = substr($q['hint2'], 7); // strip "file://"
+        }
+        if($path !== '') {
             $fullPath = __DIR__ . '/' . ltrim($path, '/');
             if (is_file($fullPath)) {
-                // decide how to serve it: raw text or base64
-                $q['question_type'] = 'image';
+                $q['question_type'] = 'image/png';
                 $q['question'] = base64_encode(file_get_contents($fullPath));
             } else {
                 $q['question'] = "not_found";
             }
+            $q['hint1'] = '';
+            $q['hint2'] = '';
         }
-	else {
+        else {
             $q['question_type'] = 'text';
-	}
+        }
     }
     unset($q);
     return $questions;
 }
-
 
 function get_status($teamRow): array
 {
     return [
         'team'           => $teamRow,
         'current_round'  => fetch_db_data(FetchType::GetActiveRound),
-        'current_scores' => fetch_db_data(FetchType::FetchScoreRound),
+        'all_rounds'     => fetch_db_data(FetchType::FetchRounds),
         'overall_totals' => fetch_db_data(FetchType::FetchScoreTotal),
         'my_actions'     => fetch_db_data(FetchType::FetchActions, team_id: $teamRow['team_id']),
         'questions'      => get_questions()
@@ -350,13 +357,6 @@ function get_status($teamRow): array
 
 function make_guess($team_row): array
 {
-    if($team_row['cooldown_active']) {
-        return [
-            'points' => 0,
-            'reason'=>'cooldown_active'
-        ];
-    }
-
     $letter = strtoupper((string)get_param('letter',''));
     if(($letter === '') || !preg_match('/^[A-Z]$/', $letter)) {
         return [
@@ -366,8 +366,9 @@ function make_guess($team_row): array
     }
 
     $raw = file_get_contents('php://input') ?: '';
-    $norm = normalize_answer($raw);
-    $award = fetch_db_data(FetchType::SubmitGuess, team_id: $team_row['team_id'], letter: $letter, answer: $norm);
+    $store = sanitize_team_name($raw);
+    $norm = normalize_answer($store);
+    $award = fetch_db_data(FetchType::SubmitGuess, team_id: $team_row['team_id'], letter: $letter, answer: $norm, store: $store);
     if (!$award) { //either wrong letter or (much more likely) no active round
         return [
             'points' => 0,
@@ -375,9 +376,6 @@ function make_guess($team_row): array
         ];
     }
 
-    if($award['points'] === "-1") {
-        fetch_db_data(FetchType::ExtendCooldown, team_id: $team_row['team_id']);
-    }
     return [
         'points' => 1,  //if we want to let the team know that they were successful, we would return $award here
         'reason'=>'guess_submitted'

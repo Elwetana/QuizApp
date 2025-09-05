@@ -47,16 +47,37 @@
   }
 
   function renderHistory(data) {
-    const list = $('#historyList');
-    list.innerHTML = '';
-    (data.my_actions || []).forEach((a) => {
-      const li = document.createElement('li');
-      const pts = Number(a.points);
-      const s = new Date(a.time).toLocaleTimeString();
-      const ans = (a.answered || '').toString();
-      li.textContent = `${s} – R${a.round}${a.letter ? '/' + a.letter : ''} – "${ans.slice(0, 60)}${ans.length > 60 ? '…' : ''}" – ${pts >= 0 ? '+' + pts : pts}`;
-      list.appendChild(li);
+    const wrap = $('#historyList');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const actions = data.my_actions || [];
+    if (!actions.length) { wrap.textContent = 'No actions yet.'; return; }
+
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    ['Time', 'Round', 'Letter', 'Answer'].forEach((h) => {
+      const th = document.createElement('th'); th.textContent = h; trh.appendChild(th);
     });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    actions.forEach((a) => {
+      const tr = document.createElement('tr');
+      const t = new Date(a.time);
+      const timeStr = isNaN(t.getTime()) ? '' : t.toLocaleTimeString();
+      const ans = (a.answered || '').toString();
+      const cells = [
+        timeStr,
+        'R' + (a.round ?? ''),
+        (a.letter || ''),
+        '"' + ans.slice(0, 60) + (ans.length > 60 ? '…' : '') + '"'
+      ];
+      cells.forEach((val) => { const td = document.createElement('td'); td.textContent = val; tr.appendChild(td); });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
   }
 
   function renderCurrentRound(data) {
@@ -71,18 +92,19 @@
     const started = cr.started ? new Date(cr.started).toLocaleTimeString() : '—';
     el.innerHTML = `Round ${cr.round} • ${cr.name || ''} • value=${cr.value} • length=${cr.length}s • started=${started}`;
 
-    // Current round leaderboard (live)
-    const live = data.current_scores || [];
-    if (live.length) {
-      const top = [...live].sort((a, b) => Number(b.pts) - Number(a.pts))[0];
-      const div = document.createElement('div');
-      div.innerHTML = `✨ Leading this round: <b>${top.team_id}</b> (${top.pts} pts)`;
-      el.appendChild(div);
-    }
-
     // Default admin round selection to current round if none selected
     if (selectedRound == null && currentRound) {
       setSelectedRound(currentRound);
+    }
+
+    // Rounds summary using all_rounds (if present)
+    if (Array.isArray(data.all_rounds)) {
+      const total = data.all_rounds.length;
+      const currentIdx = data.all_rounds.findIndex(r => Number(r.round) === currentRound);
+      const remaining = currentIdx >= 0 ? (total - currentIdx - 1) : (total - 1);
+      const summary = document.createElement('div');
+      summary.innerHTML = `📚 Rounds: ${total} total • ${remaining} remaining`;
+      el.appendChild(summary);
     }
   }
 
@@ -109,15 +131,18 @@
       const card = document.createElement('div');
       card.className = 'q';
       card.style.margin = '0 0 .75rem 0';
-      const h = [];
-      if (q.hint1) h.push(`<div><small>Hint 1:</small> ${q.hint1}</div>`);
-      if (q.hint2) h.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
-      card.innerHTML = `
-        <div><b>${q.letter}.</b> ${q.question}</div>
-        ${h.join('')}
-        <div class="row" style="margin-top:.25rem">
-          <button class="primary">Answer</button>
-        </div>`;
+      const parts = [];
+      // Question content: text or base64 PNG
+      if (q.question_type === 'image/png') {
+        parts.push(`<div><b>${q.letter}.</b></div>`);
+        parts.push(`<img alt="Question ${q.letter}" src="data:image/png;base64,${q.question}" />`);
+      } else {
+        parts.push(`<div><b>${q.letter}.</b> ${q.question}</div>`);
+      }
+      if (q.hint1) parts.push(`<div><small>Hint 1:</small> ${q.hint1}</div>`);
+      if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
+      parts.push(`<div class="row" style="margin-top:.25rem"><button class="primary">Answer</button></div>`);
+      card.innerHTML = parts.join('');
       card.querySelector('button').addEventListener('click', () => {
         setSelected(q.letter);
         document.querySelector('#tabs button[data-tab="guess"]').click();
@@ -178,10 +203,9 @@
     const wrap = $('#roundButtons');
     if (!wrap) return;
     wrap.innerHTML = '';
-    const rounds = new Set((data.overall_totals || []).map((r) => Number(r.round)));
-    if (data.current_round?.round) rounds.add(Number(data.current_round.round));
-    // If no known rounds, render a default range 1..20
-    let list = Array.from(rounds).sort((a, b) => a - b);
+    // Prefer rounds list from all_rounds
+    let list = Array.isArray(data.all_rounds) ? data.all_rounds.map(r => Number(r.round)) : [];
+    list = Array.from(new Set(list)).sort((a, b) => a - b);
     if (!list.length) {
       list = Array.from({ length: 20 }, (_, i) => i + 1);
     }
@@ -359,6 +383,189 @@
   $('#resetBtn') && $('#resetBtn').addEventListener('click', resetAll);
   $('#defineBtn') && $('#defineBtn').addEventListener('click', () => { const f = $('#defineFile'); if (f) { f.click(); } });
   bindDefine();
+  // Open Quiz Master
+  $('#openMaster') && $('#openMaster').addEventListener('click', () => {
+    const w = 1280, h = 720; // 16:9 window
+    const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+    const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+    const features = `width=${w},height=${h},left=${left},top=${top}`;
+    // Persist team for the master client
+    try { localStorage.setItem('QUIZ_TEAM', TEAM); } catch(e) {}
+    try { sessionStorage.setItem('QUIZ_TEAM', TEAM); } catch(e) {}
+    // Set a short-lived cookie with the team code, path='/'
+    document.cookie = `QUIZ_TEAM=${encodeURIComponent(TEAM)}; Max-Age=600; Path=/; SameSite=Strict`;
+    window.open(`master.html`, 'quiz_master', features);
+  });
+
+  // Unified Questions + Guess overrides
+  var lastStatus = null;
+
+  function setSelected(letter) {
+    selectedLetter = letter || null;
+    if (lastStatus) renderQuestions(lastStatus);
+  }
+
+  function renderQuestions(data) {
+    const list = $('#questionsList');
+    if (!list) return;
+    list.innerHTML = '';
+    const qs = data.questions || [];
+    if (!qs.length) {
+      list.textContent = 'Questions will appear when a round is active.';
+      return;
+    }
+
+    // If answering a selected letter, show only that question with inline controls
+    if (selectedLetter) {
+      const q = qs.find((x) => x.letter === selectedLetter);
+      if (!q) {
+        selectedLetter = null;
+      } else {
+        const card = document.createElement('div');
+        card.className = 'q';
+        card.style.margin = '0 0 .75rem 0';
+        const parts = [];
+        if (q.question_type === 'image/png') {
+          parts.push(`<div><b>${q.letter}.</b></div>`);
+          parts.push(`<img alt="Question ${q.letter}" src="data:image/png;base64,${q.question}" />`);
+        } else {
+          parts.push(`<div><b>${q.letter}.</b> ${q.question || ''}</div>`);
+        }
+        if (q.hint1) parts.push(`<div><small>Hint 1:</small> ${q.hint1}</div>`);
+        if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
+        parts.push(`
+          <label>
+            <span>Answer</span>
+            <textarea class="answer-input" rows="3" placeholder="Type your answer"></textarea>
+          </label>
+          <div class="row">
+            <button data-action="submit" class="primary">Submit</button>
+            <button data-action="back">Back</button>
+          </div>
+          <div class="result" data-role="guessResult"></div>
+        `);
+        card.innerHTML = parts.join('');
+        list.appendChild(card);
+
+        const back = card.querySelector('[data-action="back"]');
+        if (back) back.addEventListener('click', () => {
+          selectedLetter = null;
+          renderQuestions(lastStatus || { questions: [] });
+        });
+        const submit = card.querySelector('[data-action="submit"]');
+        if (submit) submit.addEventListener('click', submitGuess);
+        return;
+      }
+    }
+
+    // Default list view with Answer buttons
+    qs.forEach((q) => {
+      const card = document.createElement('div');
+      card.className = 'q';
+      card.style.margin = '0 0 .75rem 0';
+      const parts = [];
+      if (q.question_type === 'image/png') {
+        parts.push(`<div><b>${q.letter}.</b></div>`);
+        parts.push(`<img alt="Question ${q.letter}" src="data:image/png;base64,${q.question}" />`);
+      } else {
+        parts.push(`<div><b>${q.letter}.</b> ${q.question || ''}</div>`);
+      }
+      if (q.hint1) parts.push(`<div><small>Hint 1:</small> ${q.hint1}</div>`);
+      if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
+      const act = document.createElement('div');
+      act.className = 'row';
+      const ansBtn = document.createElement('button');
+      ansBtn.textContent = 'Answer';
+      ansBtn.className = 'primary';
+      ansBtn.addEventListener('click', () => setSelected(q.letter));
+      act.appendChild(ansBtn);
+      card.appendChild(document.createRange().createContextualFragment(parts.join('')));
+      card.appendChild(act);
+      list.appendChild(card);
+    });
+  }
+
+  async function fetchStatus() {
+    try {
+      const resp = await fetch(API('status'));
+      const data = await resp.json();
+
+      // Admin flag may come as 't'/'f', true/false, 1/0
+      isAdmin = toBool(data.team?.is_admin);
+      $('#adminTab').classList.toggle('hidden', !isAdmin);
+      // Hide legacy Guess tab/section now that answering is inline
+      const guessBtn = document.querySelector('#tabs button[data-tab="guess"]');
+      const guessSection = document.getElementById('guess');
+      if (guessBtn) guessBtn.classList.add('hidden');
+      if (guessSection) guessSection.classList.add('hidden');
+
+      // Team name and caption
+      const teamName = (data.team?.name || '').trim();
+      if (!editingCaption && cap) cap.textContent = teamName || TEAM;
+
+      lastStatus = data;
+      renderCurrentRound(data);
+      renderQuestions(data);
+      renderScoreboard(data);
+      renderHistory(data);
+      renderAdminRoundButtons(data);
+      $('#foot').textContent = `Team ${TEAM}`;
+    } catch (e) {
+      $('#foot').textContent = 'Disconnected. Retrying…';
+    }
+  }
+
+  async function submitGuess(ev) {
+    const container = ev && ev.target ? ev.target.closest('.q') : null;
+    const question = (selectedLetter || '').toUpperCase().slice(0, 1);
+    const ansEl = container ? container.querySelector('.answer-input') : $('#answer');
+    const resEl = container ? container.querySelector('[data-role="guessResult"]') : $('#guessResult');
+    const answer = ansEl ? ansEl.value.trim() : '';
+    if (!question) {
+      if (resEl) resEl.textContent = 'Select a question letter first.';
+      return;
+    }
+    if (!answer) {
+      if (resEl) resEl.textContent = 'Choose a question and enter an answer.';
+      return;
+    }
+    if (resEl) resEl.textContent = 'Submitting…';
+    try {
+      const resp = await fetch(API('guess', { letter: question }), {
+        method: 'POST',
+        body: answer,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+      const data = await resp.json();
+      if (typeof data.points === 'number') {
+        const pts = data.points;
+        if (pts > 0) {
+          if (resEl) resEl.textContent = 'Submitted!';
+          // Give time to read the message, then return to list
+          setTimeout(() => { selectedLetter = null; fetchStatus(); }, 1500);
+        } else {
+          const reason = data.reason || 'not_accepted';
+          const msg = {
+            cooldown_active: 'On cooldown. Try later.',
+            no_letter: 'No question selected.',
+            no_active: 'No active round.',
+            not_accepted: 'Not accepted.',
+          }[reason] || 'Not accepted.';
+          if (resEl) resEl.textContent = msg;
+          // Stay on the question for user to retry or edit
+        }
+        // Navigation handled per-branch above
+      } else {
+        if (resEl) resEl.textContent = 'Server error.';
+        selectedLetter = null;
+        if (lastStatus) renderQuestions(lastStatus);
+      }
+    } catch (e) {
+      if (resEl) resEl.textContent = 'Network error.';
+      selectedLetter = null;
+      if (lastStatus) renderQuestions(lastStatus);
+    }
+  }
 
   // Caption inline rename
   if (cap) {

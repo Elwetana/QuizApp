@@ -143,3 +143,4 @@ This has row of buttons to select round and a numeric input field to set value o
 * [ ] Better info about previous actions
 * [ ] Better info about situation
 * [ ] Store answer before normalizing (but after some cleaning)
+* [ ] Create 'quiz master' client
