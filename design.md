@@ -132,3 +132,14 @@ The Admin “team” has one more tab:
 
 ## Round
 This has row of buttons to select round and a numeric input field to set value of column active and a submit button.
+
+# Changes from the design to be implemented
+
+* [ ] Do not return points for the current round, the team will only learn about the score from the round at the end of the round
+* [ ] Feed client information about all rounds, so that the teams can see how many points can be won in future
+* [ ] Allow pictures as questions
+* [ ] Unify Questions and Guess tabs
+* [ ] Add Help tab for Players
+* [ ] Better info about previous actions
+* [ ] Better info about situation
+* [ ] Store answer before normalizing (but after some cleaning)
