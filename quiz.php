@@ -310,6 +310,32 @@ function html_base(): void
 }
 
 // ======== STATUS ========
+
+function get_questions()
+{
+    $questions = fetch_db_data(FetchType::FetchQuestions);
+
+    foreach ($questions as &$q) {
+        if (isset($q['question']) && str_starts_with($q['question'], 'file://')) {
+            $path = substr($q['question'], 7); // strip "file://"
+            $fullPath = __DIR__ . '/' . ltrim($path, '/');
+            if (is_file($fullPath)) {
+                // decide how to serve it: raw text or base64
+                $q['question_type'] = 'image';
+                $q['question'] = base64_encode(file_get_contents($fullPath));
+            } else {
+                $q['question'] = "not_found";
+            }
+        }
+	else {
+            $q['question_type'] = 'text';
+	}
+    }
+    unset($q);
+    return $questions;
+}
+
+
 function get_status($teamRow): array
 {
     return [
@@ -318,7 +344,7 @@ function get_status($teamRow): array
         'current_scores' => fetch_db_data(FetchType::FetchScoreRound),
         'overall_totals' => fetch_db_data(FetchType::FetchScoreTotal),
         'my_actions'     => fetch_db_data(FetchType::FetchActions, team_id: $teamRow['team_id']),
-        'questions'      => fetch_db_data(FetchType::FetchQuestions)
+        'questions'      => get_questions()
     ];
 }
 
