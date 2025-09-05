@@ -81,12 +81,9 @@ Perform the following checks:
 Now we can start processing the answer:
 
 ## Check for match, start cooldown if no match
-The answer provided by the team is converted to lowercase and stripped of diacritical marks (normalized to NFD and filtered for all non-ascii characters) and then regex match is performed with answer in table Questions as regex expression. If there is not a match, start cooldown and:
+The answer provided by the team is converted to lowercase and stripped of diacritical marks (normalized to NFD and filtered for all non-ascii characters) and then regex match is performed with answer in table Questions as regex expression. 
 
-* Set cooldown_end to now() + cooldown_length  * interval ‘1 seconds’
-* Set cooldown_length to min(cooldown_length  * 2, 480), i.e. maximum cooldown is 8 minutes
-
-If there is no match, update actions table with this wrong attempt and return -1.
+If there is no match, update actions table with this wrong attempt and set points to 0
 
 If there is a match, the team will be scored, based on the following rules:
 
@@ -96,17 +93,17 @@ If there is a match, the team will be scored, based on the following rules:
 * If we are within this interval (i.e. now() < started + length  * interval ‘1 second’, then use base score
 * For every complete elapsed interval of length seconds, divide the base score by 2 (so e.g. if  started + 2  * length  * interval ‘1 second’ < now() < started + 3  * length  * interval ‘1 second’, divide by 4
 
-Finally update actions table and return the score calculated above.
+Finally update actions table and return 0. The teams do not now if the guess was successful or not.
 
 ## Rules for scoring end of round
 When admin team sets active column of table Rounds to 2, that round will be scored. Follow these rules:
 
 * Determine order or the teams:
-  * Teams are ordered by the score achieved in this round
+  * Teams are ordered by the score achieved in this round. The score is in this round is the sum of the points value of their latest guess (wrong guesses have point value 0)
   * In case of a tie, the ties are broken by the order of the last successful guess of the teams (i.e. team with the earlier last successful guess wins)
   * If the tie persists, the order is broken by the second last guess and so on.
   * If the tie persists, the order is broken randomly
-* The teams in first half half (rounded up) will be awarded points by this formula:
+* The teams in first half (rounded up) will be awarded points by this formula:
   * The column value in table Rounds plus
   * Their score in this round divided by the maximum number of points that could be scored (i.e. number of questions times value column in Rounds), divided by ten.
 
