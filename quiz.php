@@ -413,19 +413,19 @@ function define_data(): array
     pg()->beginTransaction();
     try{
         if(isset($payload['teams'])) {
-            $ins=pg()->prepare('INSERT INTO teams(team_id,name,locked,is_admin,cooldown_end,cooldown_length) VALUES(:id,:name,COALESCE(:locked,false),COALESCE(:admin,false),NOW(),30)
-                                ON CONFLICT (team_id) DO UPDATE SET name=EXCLUDED.name, locked=EXCLUDED.locked, is_admin=EXCLUDED.is_admin');
+            $ins=pg()->prepare('INSERT INTO teams(team_id,name) VALUES(:id,:name)
+                                ON CONFLICT (team_id) DO UPDATE SET name=EXCLUDED.name');
             foreach($payload['teams'] as $t) {
-                $ins->execute([':id'=>$t['team_id'],':name'=>$t['name']??null,':locked'=>$t['locked']??false,':admin'=>$t['is_admin']??false]);
+                $ins->execute([':id'=>$t['team_id'],':name'=>$t['name']??null]);
             }
-        }
+	}
         if(isset($payload['rounds'])){
             $ins=pg()->prepare('INSERT INTO rounds(round,name,length,active,started,value) VALUES(:r,:n,:l,0,NULL,:v)
                                 ON CONFLICT (round) DO UPDATE SET name=EXCLUDED.name, length=EXCLUDED.length, value=EXCLUDED.value');
             foreach($payload['rounds'] as $r) {
                 $ins->execute([':r'=>$r['round'], ':n'=>$r['name']??null, ':l'=>$r['length'], ':v'=>$r['value']]);
             }
-        }
+	}
         if(isset($payload['questions'])) {
             $del=pg()->prepare('DELETE FROM questions WHERE round=:r');
             $ins=pg()->prepare('INSERT INTO questions(round,letter,question,hint1,hint2,answer) VALUES(:r,:l,:q,:h1,:h2,:a)');
