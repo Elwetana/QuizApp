@@ -18,14 +18,12 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 #present .qwrap .body { min-height: 0; }
 #present .qwrap .title { font-size: clamp(28px, min(10cqh, 10cqw), 96px); font-weight: 800; margin-bottom: .5rem; }
 #present .qwrap .body { overflow: hidden; display: grid; align-content: center; justify-items: center; container-type: size; }
-#present .qwrap .text { width: 100%; text-align: left; font-size: clamp(24px, min(20cqh, 16cqw), 140px); line-height: 1.15; }
-#present .qwrap .hint { color: var(--muted); margin-top: .5rem; font-size: 1.2rem; }
+/* Slightly smaller responsive text to ensure fit */
+#present .qwrap .text { width: 100%; text-align: left; font-size: clamp(20px, min(12cqh, 10cqw), 96px); line-height: 1.15; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+/* In presentation mode, keep hints same size as question text */
+#present .qwrap .hint { color: var(--muted); margin-top: .5rem; font-size: clamp(20px, min(12cqh, 10cqw), 96px); line-height: 1.15; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
 
-/* Promote latest hint to main size and reduce question text */
-#present .qwrap.has-promote .hint.promote { color: var(--text); font-size: clamp(24px, min(20cqh, 16cqw), 140px); line-height: 1.15; }
-#present .qwrap.has-promote .text { color: var(--muted); font-size: clamp(18px, min(10cqh, 8cqw), 70px); }
-/* When hint2 is available (promoted), keep hint1 same size as question text */
-#present .qwrap.has-promote .hint:not(.promote) { color: var(--muted); font-size: clamp(18px, min(10cqh, 8cqw), 70px); line-height: 1.15; }
+/* No promotion overrides in presentation mode: all texts same size */
 
 /* 3x2 square grid sized off viewport height: width = 1.5 * vh */
 #grid {
@@ -77,10 +75,10 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 .qwrap .hint { color: var(--muted); margin-top: .25rem; }
 
 /* Grid view: promote hint within cell and downscale question text */
-.qwrap.has-promote .hint.promote { color: var(--text); font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; }
-.qwrap.has-promote .body .text { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
+#grid .qwrap.has-promote .hint.promote { color: var(--text); font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; }
+#grid .qwrap.has-promote .body .text { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
 /* In grid, keep hint1 same size as question text when hint2 is promoted */
-.qwrap.has-promote .hint:not(.promote) { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
+#grid .qwrap.has-promote .hint:not(.promote) { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
 
 /* No media rule needed; width is based on stage height via cqh */
 
