@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pub Quiz</title>
     <link rel="stylesheet" href="quiz.css" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
 </head>
 <body>
 <header>
@@ -27,6 +28,23 @@
         <div class="card">
             <h2>Current Round</h2>
             <div id="currentRound"></div>
+        </div>
+        <div class="card">
+            <h2>Rounds Overview</h2>
+            <div id="roundsOverview">
+                <div>
+                    <h3>Completed rounds</h3>
+                    <div id="roundsCompleted"></div>
+                </div>
+                <div>
+                    <h3>Current round</h3>
+                    <div id="roundsCurrent"></div>
+                </div>
+                <div>
+                    <h3>Future rounds</h3>
+                    <div id="roundsFuture"></div>
+                </div>
+            </div>
         </div>
         
     </section>
@@ -71,7 +89,7 @@
             </div>
             <div class="row admin-actions">
                 <button id="resetBtn">Reset</button>
-                <button id="defineBtn">Define…</button>
+                <button id="defineBtn">Define&hellip;</button>
                 <input type="file" id="defineFile" accept="application/json,.json" class="hidden" />
             </div>
             <div class="row admin-actions">
@@ -79,12 +97,21 @@
             </div>
             <div id="roundResult" class="result"></div>
         </div>
+        <div class="card">
+            <h2>Round Progress</h2>
+            <div id="progressFilter" class="row"></div>
+            <div id="progress"></div>
+        </div>
+        <div class="card">
+            <h2>Per Question Summary</h2>
+            <div id="progressSummary"></div>
+        </div>
     </section>
 </main>
 
 <footer>
     <small id="foot"></small>
-</footer>
+  </footer>
 
 <script src="quiz.js" defer></script>
 </body>

@@ -25,6 +25,7 @@ enum FetchType: int
     case StartRound = 10;
     case EndRound = 11;
     case TotalRound = 12;
+    case ProgressRound = 13;
 }
 
 function pg(): ?PDO
@@ -66,8 +67,10 @@ EOL,
     FROM rounds;
 EOL,
         FetchType::FetchScoreTotal->value => <<<EOL
-    SELECT team_id, round, score 
-    FROM teams_per_round;
+    SELECT 
+        coalesce(teams.name, team_id) as team_id, round, score 
+    FROM teams_per_round
+    JOIN teams using(team_id);
 EOL,
         FetchType::GetActiveRound->value => <<<EOL
     select * from rounds where active = 1;
@@ -76,7 +79,7 @@ EOL,
     SELECT 
         round, letter, question,
         case when now() > started + length * interval '1 second' then hint1 end as hint1,
-        case when now() > started + 2 * length * interval '1 second' then hint2 end as hint2
+        case when now() > started + 1.5 * length * interval '1 second' then hint2 end as hint2
     FROM 
         questions
         join rounds using(round)
@@ -105,7 +108,7 @@ EOL,
             :a ~ answer as is_match,
             value,
             case when started + length * interval '1 second' < now() then 0.5 else 1 end as hint1_mod,
-            case when started + 2 * length * interval '1 second' < now() then 0.5 else 1 end as hint2_mod
+            case when started + 1.5 * length * interval '1 second' < now() then 0.5 else 1 end as hint2_mod
         from
             questions
             join rounds using (round)
@@ -206,7 +209,17 @@ EOL,
     select team_id, round, value * 100 + (ceil(n_teams.n / 2) - r) as score
     from ranked, n_teams, cur_round
     where r <= ceil(n_teams.n / 2)
+    on conflict (team_id, round) do update set score = excluded.score 
     returning team_id;
+EOL,
+        FetchType::ProgressRound->value =>  <<<EOL
+    select
+        coalesce(teams.name, team_id) as team,
+        action_id, letter, points, answered
+    from actions
+    join rounds using (round)
+    join teams using(team_id)
+    where active = 1;
 EOL
     ];
 
@@ -318,10 +331,10 @@ function get_questions()
         if (isset($q['question']) && str_starts_with($q['question'], 'file://')) {
             $path = substr($q['question'], 7); // strip "file://"
         }
-        elseif (isset($q['hint1']) && str_starts_with($q['hint1'], 'file://')) {
+        if (isset($q['hint1']) && str_starts_with($q['hint1'], 'file://')) {
             $path = substr($q['hint1'], 7); // strip "file://"
         }
-        elseif (isset($q['hint2']) && str_starts_with($q['hint2'], 'file://')) {
+        if (isset($q['hint2']) && str_starts_with($q['hint2'], 'file://')) {
             $path = substr($q['hint2'], 7); // strip "file://"
         }
         if($path !== '') {
@@ -345,7 +358,7 @@ function get_questions()
 
 function get_status($teamRow): array
 {
-    return [
+    $ret = [
         'team'           => $teamRow,
         'current_round'  => fetch_db_data(FetchType::GetActiveRound),
         'all_rounds'     => fetch_db_data(FetchType::FetchRounds),
@@ -353,6 +366,10 @@ function get_status($teamRow): array
         'my_actions'     => fetch_db_data(FetchType::FetchActions, team_id: $teamRow['team_id']),
         'questions'      => get_questions()
     ];
+    if($teamRow['is_admin']) {
+        $ret['round_progress'] = fetch_db_data(FetchType::ProgressRound);
+    }
+    return $ret;
 }
 
 function make_guess($team_row): array

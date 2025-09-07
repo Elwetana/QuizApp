@@ -2,17 +2,30 @@
   --square-gap: 12px;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--text); }
+html, body { margin: 0; background: var(--bg); color: var(--text); height: 100%; }
+body { display: flex; justify-content: center; align-items: flex-start; }
 
-#layout { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+/* Fixed 16:9 stage centered horizontally, top-aligned vertically */
+#stage { width: min(100vw, calc(100vh * (16 / 9))); aspect-ratio: 16 / 9; }
+
+/* Layout fills the 16:9 stage and acts as a container for cqh */
+#layout { display: flex; height: 100%; width: 100%; overflow: hidden; container-type: size; }
 /* Presentation (single-question) mode */
-#present { height: 100vh; width: 100vw; padding: 16px; display: flex; align-items: stretch; justify-content: stretch; }
-#present .panel { background: var(--card); border: 1px solid #1f2937; border-radius: .8rem; width: 100%; height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
-#present .qwrap { padding: 1.5rem; }
+#present { height: 100%; width: 100%; padding: 16px; display: flex; align-items: stretch; justify-content: stretch; }
+#present .panel { background: var(--card); border: 1px solid #1f2937; border-radius: .8rem; width: 100%; height: 100%; display: grid; grid-template-rows: 1fr; }
+#present .qwrap { padding: 1.5rem; height: 100%; min-height: 0; }
+#present .panel > .qwrap { grid-row: 1 / -1; }
+#present .qwrap .body { min-height: 0; }
 #present .qwrap .title { font-size: clamp(28px, min(10cqh, 10cqw), 96px); font-weight: 800; margin-bottom: .5rem; }
 #present .qwrap .body { overflow: hidden; display: grid; align-content: center; justify-items: center; container-type: size; }
 #present .qwrap .text { width: 100%; text-align: left; font-size: clamp(24px, min(20cqh, 16cqw), 140px); line-height: 1.15; }
 #present .qwrap .hint { color: var(--muted); margin-top: .5rem; font-size: 1.2rem; }
+
+/* Promote latest hint to main size and reduce question text */
+#present .qwrap.has-promote .hint.promote { color: var(--text); font-size: clamp(24px, min(20cqh, 16cqw), 140px); line-height: 1.15; }
+#present .qwrap.has-promote .text { color: var(--muted); font-size: clamp(18px, min(10cqh, 8cqw), 70px); }
+/* When hint2 is available (promoted), keep hint1 same size as question text */
+#present .qwrap.has-promote .hint:not(.promote) { color: var(--muted); font-size: clamp(18px, min(10cqh, 8cqw), 70px); line-height: 1.15; }
 
 /* 3x2 square grid sized off viewport height: width = 1.5 * vh */
 #grid {
@@ -21,7 +34,7 @@ html, body { margin: 0; background: var(--bg); color: var(--text); }
   align-content: flex-start;
   gap: var(--square-gap);
   padding: var(--square-gap);
-  width: calc(100vh * 1.5);
+  width: 150cqh; /* 1.5 * container height */
   min-width: 0;
 }
 
@@ -44,7 +57,15 @@ html, body { margin: 0; background: var(--bg); color: var(--text); }
 #grid .cell.info .clock { font-size: 3rem; font-variant-numeric: tabular-nums; color: var(--accent-2); }
 
 /* Right strip (unused for now) */
-#strip { flex: 1 1 auto; border-left: 1px solid #1f2937; background: #0b1220; }
+#strip { flex: 1 1 auto; border-left: 1px solid #1f2937; background: #0b1220; overflow: auto; }
+#strip .board { padding: 1rem; }
+#strip .board-title { font-weight: 800; letter-spacing: .02em; margin: 0 0 .5rem 0; }
+#strip .board-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .25rem; }
+#strip .board-list li { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; background: rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.25); border-radius: .4rem; padding: .35rem .5rem; }
+#strip .board-list li .rank { width: 2ch; opacity: .85; }
+#strip .board-list li .team { font-weight: 600; }
+#strip .board-list li .pts { font-variant-numeric: tabular-nums; }
+#strip .board-list li.empty { background: transparent; border: none; opacity: .8; justify-content: flex-start; }
 
 /* Content styles for questions */
 .qwrap { display: grid; grid-template-rows: auto 1fr; gap: .5rem; padding: 1rem; width: 100%; }
@@ -55,10 +76,13 @@ html, body { margin: 0; background: var(--bg); color: var(--text); }
 .qwrap .hint { font-size: 0.75em; }
 .qwrap .hint { color: var(--muted); margin-top: .25rem; }
 
-@media (max-aspect-ratio: 16/9) {
-  /* If window is narrower, let grid shrink to fit */
-  #grid { width: 100vw; }
-}
+/* Grid view: promote hint within cell and downscale question text */
+.qwrap.has-promote .hint.promote { color: var(--text); font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; }
+.qwrap.has-promote .body .text { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
+/* In grid, keep hint1 same size as question text when hint2 is promoted */
+.qwrap.has-promote .hint:not(.promote) { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
+
+/* No media rule needed; width is based on stage height via cqh */
 
 /* Overlay for team entry */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; z-index: 9999; }

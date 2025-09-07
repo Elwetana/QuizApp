@@ -78,6 +78,9 @@
   };
 
   let current = { round: null, started: null, length: null };
+  let nextTransitionAt = null; // Date | null for next hint/end boundary
+  let transitionTimer = null;  // Timeout id for precise refresh
+  let transitionArmed = false; // gate to avoid duplicate refresh on zero
   let questions = [];
   let mode = 'present';
   let idx = 0; // current question index in present mode
@@ -104,19 +107,46 @@
     info.querySelector('.round').textContent = roundName;
   }
 
-  function nextHintSeconds() {
-    if (!current.started || !current.length) return 0;
-    const now = new Date();
-    const t1 = new Date(current.started.getTime() + current.length * 1000);
-    const t2 = new Date(current.started.getTime() + 2 * current.length * 1000);
-    if (now < t1) return (t1 - now) / 1000;
-    if (now < t2) return (t2 - now) / 1000;
-    return 0;
+  // Phases: L to Hint1, then L/2 to Hint2, then L/2 to End (total 2L)
+  function computeNextTransition() {
+    if (!current.started || !current.length) return null;
+    const start = current.started.getTime();
+    const L = current.length * 1000;
+    const now = Date.now();
+    const t1 = start + L;           // Hint 1
+    const t2 = start + L + L / 2;   // Hint 2
+    const t3 = start + 2 * L;       // End
+    if (now < t1) return new Date(t1);
+    if (now < t2) return new Date(t2);
+    if (now < t3) return new Date(t3);
+    return null;
+  }
+
+  function secondsUntilNextTransition() {
+    if (!nextTransitionAt) return 0;
+    return Math.max(0, (nextTransitionAt.getTime() - Date.now()) / 1000);
   }
 
   function tickClock() {
     const el = slots.info && slots.info.querySelector('.clock');
-    if (el) el.textContent = fmtClock(nextHintSeconds());
+    if (el) el.textContent = fmtClock(secondsUntilNextTransition());
+    if (nextTransitionAt && transitionArmed && Date.now() >= nextTransitionAt.getTime()) {
+      transitionArmed = false;
+      fetchStatus();
+    }
+  }
+
+  function armTransitionTimer() {
+    if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
+    nextTransitionAt = computeNextTransition();
+    transitionArmed = !!nextTransitionAt;
+    if (nextTransitionAt) {
+      const delay = Math.max(0, nextTransitionAt.getTime() - Date.now()) + 50; // buffer
+      transitionTimer = setTimeout(() => {
+        transitionArmed = false;
+        fetchStatus();
+      }, delay);
+    }
   }
 
   function renderQuestions(data) {
@@ -144,15 +174,61 @@
         text.className = 'text';
         text.textContent = q.question || '';
         body.appendChild(text);
-        if (q.hint1) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'Hint 1: ' + q.hint1; body.appendChild(h); }
-        if (q.hint2) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'Hint 2: ' + q.hint2; body.appendChild(h); }
+        let h1 = null, h2 = null;
+        if (q.hint1) { h1 = document.createElement('div'); h1.className = 'hint'; h1.textContent = 'Hint 1: ' + q.hint1; body.appendChild(h1); }
+        if (q.hint2) { h2 = document.createElement('div'); h2.className = 'hint'; h2.textContent = 'Hint 2: ' + q.hint2; body.appendChild(h2); }
+        const promote = h2 || h1;
+        if (promote) { promote.classList.add('promote'); wrap.classList.add('has-promote'); }
       }
       wrap.appendChild(title);
       wrap.appendChild(body);
       t.appendChild(wrap);
 
+      // Allow clicking a grid cell to switch to Present mode on that question
+      t.style.cursor = 'pointer';
+      t.onclick = () => { idx = i; setMode('present'); };
+
       // Text auto-sizes via CSS container units
     });
+  }
+
+  function renderLeaderboard(data) {
+    const strip = document.getElementById('strip');
+    if (!strip) return;
+    const rows = data && Array.isArray(data.overall_totals) ? data.overall_totals : [];
+    const totals = new Map();
+    for (const r of rows) {
+      const id = r.team_id;
+      const sc = Number(r.score) || 0;
+      totals.set(id, (totals.get(id) || 0) + sc);
+    }
+    const list = Array.from(totals.entries())
+      .map(([team_id, total]) => ({ team_id, total }))
+      .sort((a, b) => b.total - a.total);
+
+    const doc = document.createElement('div');
+    doc.className = 'board';
+    const title = document.createElement('div');
+    title.className = 'board-title';
+    title.textContent = 'Leaderboard';
+    doc.appendChild(title);
+    const ul = document.createElement('ol');
+    ul.className = 'board-list';
+    if (!list.length) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'No scores yet.';
+      ul.appendChild(li);
+    } else {
+      list.forEach((t, i) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="rank">${i + 1}.</span> <span class="team">${t.team_id}</span> <span class="pts">${t.total}</span>`;
+        ul.appendChild(li);
+      });
+    }
+    doc.appendChild(ul);
+    strip.innerHTML = '';
+    strip.appendChild(doc);
   }
 
   // Removed JS font fitting — handled by CSS container query units now
@@ -181,8 +257,11 @@
       text.className = 'text';
       text.textContent = q.question || '';
       body.appendChild(text);
-      if (q.hint1) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'Hint 1: ' + q.hint1; body.appendChild(h); }
-      if (q.hint2) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'Hint 2: ' + q.hint2; body.appendChild(h); }
+      let h1 = null, h2 = null;
+      if (q.hint1) { h1 = document.createElement('div'); h1.className = 'hint'; h1.textContent = 'Hint 1: ' + q.hint1; body.appendChild(h1); }
+      if (q.hint2) { h2 = document.createElement('div'); h2.className = 'hint'; h2.textContent = 'Hint 2: ' + q.hint2; body.appendChild(h2); }
+      const promote = h2 || h1;
+      if (promote) { promote.classList.add('promote'); wrap.classList.add('has-promote'); }
     }
     wrap.appendChild(title);
     wrap.appendChild(body);
@@ -213,6 +292,7 @@
       // Keep questions sorted A..E and cached
       questions = (data.questions || []).slice().sort((a, b) => a.letter.localeCompare(b.letter));
       renderInfo(data);
+      renderLeaderboard(data);
       if (mode === 'present') {
         // Clamp idx and re-render
         if (idx >= questions.length) idx = Math.max(0, questions.length - 1);
@@ -220,6 +300,8 @@
       } else {
         renderQuestions({});
       }
+      // Re-arm countdown to next hint/end based on new status
+      armTransitionTimer();
     } catch (e) {
       // best-effort display; keep clock ticking
     }
@@ -228,7 +310,7 @@
   // Boot
   fetchStatus();
   setMode('present');
-  setInterval(fetchStatus, 10000);
+  setInterval(fetchStatus, 60000);
   setInterval(tickClock, 1000);
 
   // Navigation: Right/Space/Click -> next, Left -> prev. After last, switch to grid mode.
@@ -249,9 +331,15 @@
     }
   }
   window.addEventListener('keydown', (e) => {
-    if (mode !== 'present') return;
-    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); next(); }
-    if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+    const k = e.key;
+    // Global toggles
+    if (k === 'g' || k === 'G' || k === 'Escape') { setMode('grid'); return; }
+    if (k === 'p' || k === 'P') { idx = 0; setMode('present'); return; }
+    // Present-mode navigation
+    if (mode === 'present') {
+      if (k === 'ArrowRight' || k === ' ' || k === 'Spacebar') { e.preventDefault(); next(); }
+      if (k === 'ArrowLeft') { e.preventDefault(); prev(); }
+    }
   });
   window.addEventListener('click', () => { if (mode === 'present') next(); });
   window.addEventListener('resize', () => {

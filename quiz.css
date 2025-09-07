@@ -30,6 +30,8 @@ button { cursor: pointer; }
 button.primary { background: var(--accent); color: #052e13; border-color: #14532d; font-weight: 700; }
 .row#questionButtons button.selected { outline: 2px solid var(--accent-2); }
 #roundButtons button.selected { outline: 2px solid var(--accent-2); }
+#round .admin-actions button.suggest { outline: 2px solid var(--accent-2); border-color: var(--accent-2); }
+#progressFilter button.selected { outline: 2px solid var(--accent-2); }
 .q img { max-width: 100%; height: auto; display: block; margin-top: .5rem; border-radius: .4rem; border: 1px solid #1f2937; }
 .hidden { display: none !important; }
 #scoreboard table { width: 100%; border-collapse: collapse; }
