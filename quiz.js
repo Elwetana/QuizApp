@@ -229,8 +229,8 @@
       return;
     }
 
-    // If answering a selected letter, show only that question with inline controls
-    if (selectedLetter) {
+    // If answering a selected letter, show only that question with inline controls (players only)
+    if (!isAdmin && selectedLetter) {
       const q = qs.find((x) => x.letter === selectedLetter);
       if (!q) {
         selectedLetter = null;
@@ -269,7 +269,7 @@
       }
     }
 
-    // Default list view with Answer buttons
+    // Default list view (Answer buttons only for players)
     qs.forEach((q) => {
       const card = document.createElement('div');
       card.className = 'q';
@@ -283,15 +283,17 @@
       }
       if (q.hint1) parts.push(`<div><small>Hint 1:</small> ${q.hint1}</div>`);
       if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
-      const act = document.createElement('div');
-      act.className = 'row';
-      const ansBtn = document.createElement('button');
-      ansBtn.textContent = 'Answer';
-      ansBtn.className = 'primary';
-      ansBtn.addEventListener('click', () => { selectedLetter = q.letter; renderQuestions(lastStatus || { questions: [] }); });
-      act.appendChild(ansBtn);
       card.appendChild(document.createRange().createContextualFragment(parts.join('')));
-      card.appendChild(act);
+      if (!isAdmin) {
+        const act = document.createElement('div');
+        act.className = 'row';
+        const ansBtn = document.createElement('button');
+        ansBtn.textContent = 'Answer';
+        ansBtn.className = 'primary';
+        ansBtn.addEventListener('click', () => { selectedLetter = q.letter; renderQuestions(lastStatus || { questions: [] }); });
+        act.appendChild(ansBtn);
+        card.appendChild(act);
+      }
       list.appendChild(card);
     });
   }
