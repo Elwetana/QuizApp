@@ -131,9 +131,16 @@ EOL,
     with is_active as (
         select max(case when active = 2 then 0 else active end) as a
         from rounds
+    ),
+    is_dup as (
+        select exists(select 1 from teams where team_id <> :t and name = :a) as dup
     )
-    update teams set name = case when is_active.a = 0 and not locked then :a else name end
-    from is_active
+    update teams set name = case when is_active.a = 0 and not locked then 
+            :a || (case when dup then 
+                ' ' || nextval('team_names')::text 
+            else '' end) 
+        else name end
+    from is_active, is_dup
     where team_id = :t
     returning is_active.a = 0 and not locked as updated;
 EOL,

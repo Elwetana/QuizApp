@@ -41,6 +41,10 @@
   let selectedRound = null;
   let editingCaption = false;
   let progressFilter = null; // admin: letter filter for round progress
+  // Preserve inline answer drafts across refreshes
+  let editingAnswer = false;
+  let answerDraft = '';
+  let answerDraftLetter = null;
   let lastStatus = null;
 
   function setSelectedRound(r) {
@@ -224,6 +228,17 @@
     if (!list) return;
     list.innerHTML = '';
     const qs = data.questions || [];
+    // Build latest answer map per letter for the current round
+    const latest = {};
+    const acts = Array.isArray(data.my_actions) ? data.my_actions : [];
+    const roundFilter = Number(currentRound || 0);
+    for (const a of acts) {
+      const L = (a.letter || '').toUpperCase();
+      const r = Number(a.round || 0);
+      if (!L) continue;
+      if (roundFilter && r !== roundFilter) continue;
+      if (!(L in latest)) latest[L] = (a.answered || '').toString(); // actions are newest-first
+    }
     if (!qs.length) {
       list.textContent = 'Questions will appear when a round is active.';
       return;
@@ -247,6 +262,9 @@
         }
         if (q.hint1) parts.push(`<div><small>Hint 1:</small> ${q.hint1}</div>`);
         if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
+        // Latest personal answer under the question
+        const mine = latest[q.letter];
+        if (mine) parts.push(`<div><small>You answered:</small> ${mine}</div>`);
         parts.push(`
           <label>
             <span>Answer</span>
@@ -262,9 +280,20 @@
         list.appendChild(card);
 
         const back = card.querySelector('[data-action="back"]');
-        if (back) back.addEventListener('click', () => { selectedLetter = null; renderQuestions(lastStatus || { questions: [] }); });
+        if (back) back.addEventListener('click', () => {
+          selectedLetter = null;
+          editingAnswer = false;
+          answerDraft = '';
+          answerDraftLetter = null;
+          renderQuestions(lastStatus || { questions: [] });
+        });
         const submit = card.querySelector('[data-action="submit"]');
         if (submit) submit.addEventListener('click', submitGuess);
+        const ansEl = card.querySelector('.answer-input');
+        if (ansEl) {
+          if (editingAnswer && typeof answerDraft === 'string' && answerDraftLetter === selectedLetter) ansEl.value = answerDraft;
+          ansEl.addEventListener('input', () => { answerDraft = ansEl.value; editingAnswer = true; answerDraftLetter = selectedLetter; });
+        }
         return;
       }
     }
@@ -283,6 +312,9 @@
       }
       if (q.hint1) parts.push(`<div><small>Hint 1:</small> ${q.hint1}</div>`);
       if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
+      // Latest personal answer summary line
+      const mine = latest[q.letter];
+      if (mine) parts.push(`<div><small>You answered:</small> ${mine}</div>`);
       card.appendChild(document.createRange().createContextualFragment(parts.join('')));
       if (!isAdmin) {
         const act = document.createElement('div');
@@ -377,6 +409,9 @@
 
   async function fetchStatus() {
     try {
+      // Preserve current inline answer (if any) before re-rendering
+      const activeAnswer = document.querySelector('.answer-input');
+      if (activeAnswer) { answerDraft = activeAnswer.value; editingAnswer = true; answerDraftLetter = selectedLetter; }
       const resp = await fetch(API('status'));
       const data = await resp.json();
 
@@ -416,6 +451,11 @@
         renderRoundProgressSummary(data);
       }
       $('#foot').textContent = `Team ${TEAM}`;
+      // Restore inline answer draft after DOM update
+      if (selectedLetter) {
+        const restored = document.querySelector('.answer-input');
+        if (restored && typeof answerDraft === 'string' && editingAnswer && answerDraftLetter === selectedLetter) restored.value = answerDraft;
+      }
     } catch (e) {
       $('#foot').textContent = 'Disconnected. Retrying...';
     }
@@ -441,7 +481,7 @@
         const pts = data.points;
         if (pts > 0) {
           if (resEl) resEl.textContent = 'Submitted!';
-          setTimeout(() => { selectedLetter = null; fetchStatus(); }, 1500);
+          setTimeout(() => { selectedLetter = null; editingAnswer = false; answerDraft = ''; answerDraftLetter = null; fetchStatus(); }, 1500);
         } else {
           const reason = data.reason || 'not_accepted';
           const msg = {
