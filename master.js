@@ -78,9 +78,10 @@
   };
 
   let current = { round: null, started: null, length: null };
-  let nextTransitionAt = null; // Date | null for next hint/end boundary
+  let nextTransitionAt = null; // number ms since epoch in server time domain
   let transitionTimer = null;  // Timeout id for precise refresh
   let transitionArmed = false; // gate to avoid duplicate refresh on zero
+  let serverSkewMs = 0;        // server_now_ms - Date.now()
   let questions = [];
   let mode = 'present';
   let idx = 0; // current question index in present mode
@@ -112,25 +113,25 @@
     if (!current.started || !current.length) return null;
     const start = current.started.getTime();
     const L = current.length * 1000;
-    const now = Date.now();
+    const now = Date.now() + serverSkewMs; // compare in server time domain
     const t1 = start + L;           // Hint 1
     const t2 = start + L + L / 2;   // Hint 2
     const t3 = start + 2 * L;       // End
-    if (now < t1) return new Date(t1);
-    if (now < t2) return new Date(t2);
-    if (now < t3) return new Date(t3);
+    if (now < t1) return t1;
+    if (now < t2) return t2;
+    if (now < t3) return t3;
     return null;
   }
 
   function secondsUntilNextTransition() {
     if (!nextTransitionAt) return 0;
-    return Math.max(0, (nextTransitionAt.getTime() - Date.now()) / 1000);
+    return Math.max(0, (nextTransitionAt - (Date.now() + serverSkewMs)) / 1000);
   }
 
   function tickClock() {
     const el = slots.info && slots.info.querySelector('.clock');
     if (el) el.textContent = fmtClock(secondsUntilNextTransition());
-    if (nextTransitionAt && transitionArmed && Date.now() >= nextTransitionAt.getTime()) {
+    if (nextTransitionAt && transitionArmed && (Date.now() + serverSkewMs) >= nextTransitionAt) {
       transitionArmed = false;
       fetchStatus();
     }
@@ -141,11 +142,29 @@
     nextTransitionAt = computeNextTransition();
     transitionArmed = !!nextTransitionAt;
     if (nextTransitionAt) {
-      const delay = Math.max(0, nextTransitionAt.getTime() - Date.now()) + 50; // buffer
+      const nowAdj = Date.now() + serverSkewMs;
+      const delay = Math.max(0, nextTransitionAt - nowAdj) + 50; // buffer
       transitionTimer = setTimeout(() => {
         transitionArmed = false;
         fetchStatus();
       }, delay);
+    }
+  }
+  function updateServerSkew(data) {
+    try {
+      if (!data) return;
+      const src = (data.team && data.team.now != null) ? data.team.now : null;
+      if (src == null) return;
+      let t = null;
+      if (typeof src === 'number') {
+        t = src < 1e12 ? src * 1000 : src;
+      } else {
+        const d = new Date(src);
+        if (!isNaN(d.getTime())) t = d.getTime();
+      }
+      if (t != null) serverSkewMs = t - Date.now();
+    } catch (_) {
+      // ignore
     }
   }
 
@@ -291,6 +310,8 @@
       const data = await resp.json();
       // Keep questions sorted A..E and cached
       questions = (data.questions || []).slice().sort((a, b) => a.letter.localeCompare(b.letter));
+      // Align client to server clock if provided
+      updateServerSkew(data);
       renderInfo(data);
       renderLeaderboard(data);
       if (mode === 'present') {

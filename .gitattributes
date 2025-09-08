@@ -1,0 +1,13 @@
+# Normalize text: store LF in repo; checkout native EOL per OS
+* text=auto
+
+# (optional) be explicit for code
+*.{php,js,css,html,sh} text eol=lf
+*.bat text eol=crlf
+
+# Never treat these as text
+*.png binary
+*.jpg binary
+*.gif binary
+*.min.* -text
+

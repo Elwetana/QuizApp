@@ -2,8 +2,6 @@
 // quiz.php — single entry point and API for the Pub Quiz
 
 // ======== CONFIG ========
-use JetBrains\PhpStorm\NoReturn;
-
 $DB_HOST = getenv('PGHOST') ?: 'localhost';
 $DB_PORT = getenv('PGPORT') ?: '5432';
 $DB_NAME = getenv('PGDATABASE') ?: 'quiz';
@@ -57,9 +55,11 @@ function fetch_db_data(FetchType $name, string $team_id=null, string $letter=nul
     $sql = [
         FetchType::FetchTeam->value => /** @lang PostgreSQL */
         <<<EOL
-    SELECT *, cooldown_end > now() as cooldown_active, extract('epoch' from (now() - last_seen)) as last_seen_age 
+    SELECT 
+        *, cooldown_end > now() as cooldown_active, extract('epoch' from (now() - last_seen)) as last_seen_age, 
+        now()::timestamp without time zone as now
     FROM teams 
-    WHERE team_id=:t;
+    WHERE team_id=:t
 EOL,
         FetchType::FetchActions->value => <<<EOL
     SELECT time,round,letter,answered 
