@@ -472,6 +472,10 @@ function define_data(): array
             }
 	}
         if(isset($payload['rounds'])){
+            $del = pg()->prepare('DELETE FROM questions;');
+	    $del->execute();
+            $del = pg()->prepare('delete from rounds;');
+	    $del->execute();
             $ins=pg()->prepare('INSERT INTO rounds(round,name,length,active,started,value) VALUES(:r,:n,:l,0,NULL,:v)
                                 ON CONFLICT (round) DO UPDATE SET name=EXCLUDED.name, length=EXCLUDED.length, value=EXCLUDED.value');
             foreach($payload['rounds'] as $r) {
