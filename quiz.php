@@ -26,6 +26,7 @@ enum FetchType: int
     case EndRound = 11;
     case TotalRound = 12;
     case ProgressRound = 13;
+    case LastSeen = 14;
 }
 
 function pg(): ?PDO
@@ -52,7 +53,7 @@ function fetch_db_data(FetchType $name, string $team_id=null, string $letter=nul
 {
     $sql = [
         FetchType::FetchTeam->value => <<<EOL
-    SELECT *, cooldown_end > now() as cooldown_active 
+    SELECT *, cooldown_end > now() as cooldown_active, extract('epoch' from (now() - last_seen)) as last_seen_age 
     FROM teams 
     WHERE team_id=:t;
 EOL,
@@ -220,6 +221,12 @@ EOL,
     join rounds using (round)
     join teams using(team_id)
     where active = 1;
+EOL,
+        FetchType::LastSeen->value => /** @lang PostgreSQL */ <<<EOL
+    update teams
+    set last_seen = now()
+    where team_id = :t
+    returning last_seen;
 EOL
     ];
 
@@ -232,7 +239,8 @@ EOL
         FetchType::RenameTeam->value,
         FetchType::CloseRound->value,
         FetchType::StartRound->value,
-        FetchType::EndRound->value
+        FetchType::EndRound->value,
+        FetchType::LastSeen->value
     ];
 
     $params = [];
@@ -369,6 +377,9 @@ function get_status($teamRow): array
     if($teamRow['is_admin']) {
         $ret['round_progress'] = fetch_db_data(FetchType::ProgressRound);
     }
+    if($teamRow['last_seen'] === null) {
+        $teamRow['last_seen'] = fetch_db_data(FetchType::LastSeen, $teamRow['team_id']);
+    }
     return $ret;
 }
 
@@ -493,7 +504,7 @@ function reset_data(): array
 {
     pg()->beginTransaction();
     try{
-        pg()->exec('DELETE FROM teams_per_round; DELETE FROM actions; UPDATE rounds SET active=0, started=NULL; UPDATE teams SET cooldown_end=NOW(), cooldown_length=30;');
+        pg()->exec('DELETE FROM teams_per_round; DELETE FROM actions; UPDATE rounds SET active=0, started=NULL; UPDATE teams SET cooldown_end=NOW(), cooldown_length=30, last_seen=null;');
         pg()->commit();
         return ['ok'=>true];
     } catch(Throwable $e){
