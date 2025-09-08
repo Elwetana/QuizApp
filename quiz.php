@@ -82,16 +82,22 @@ EOL,
         FetchType::GetActiveRound->value => <<<EOL
     select * from rounds where active = 1;
 EOL,
-        FetchType::FetchQuestions->value => <<<EOL
-    SELECT 
+        FetchType::FetchQuestions->value => /** @lang PostgreSQL */ <<<EOL
+    with r as (
+        select round, started, length
+        from rounds
+        where active = 1 or active = 2
+        order by active, round desc
+        limit 1
+    )
+    SELECT
         round, letter, question,
         case when now() > started + length * interval '1 second' then hint1 end as hint1,
         case when now() > started + 1.5 * length * interval '1 second' then hint2 end as hint2
-    FROM 
+    FROM
         questions
-        join rounds using(round)
-    WHERE active = 1
-    ORDER BY letter
+            join r using(round)
+    ORDER BY letter;
 EOL,
         FetchType::ExtendCooldown->value => /** @lang PostgreSQL */ <<<EOL
     with v as (
