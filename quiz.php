@@ -27,6 +27,9 @@ enum FetchType: int
     case TotalRound = 12;
     case ProgressRound = 13;
     case LastSeen = 14;
+    case FetchAllTeams = 15;
+    case FetchTeamAnswers = 16;
+    case FetchAllAnswers = 17;
 }
 
 function pg(): ?PDO
@@ -52,7 +55,8 @@ function pg(): ?PDO
 function fetch_db_data(FetchType $name, string $team_id=null, string $letter=null, string $answer=null, string $store=null): bool|array
 {
     $sql = [
-        FetchType::FetchTeam->value => <<<EOL
+        FetchType::FetchTeam->value => /** @lang PostgreSQL */
+        <<<EOL
     SELECT *, cooldown_end > now() as cooldown_active, extract('epoch' from (now() - last_seen)) as last_seen_age 
     FROM teams 
     WHERE team_id=:t;
@@ -68,10 +72,12 @@ EOL,
     FROM rounds;
 EOL,
         FetchType::FetchScoreTotal->value => <<<EOL
-    SELECT 
-        coalesce(teams.name, team_id) as team_id, round, score 
-    FROM teams_per_round
-    JOIN teams using(team_id);
+    select
+        teams.name as team_id, round, coalesce(score, 0) as score
+    from teams
+        cross join rounds
+        left join teams_per_round using(team_id, round)
+    where not is_admin;
 EOL,
         FetchType::GetActiveRound->value => <<<EOL
     select * from rounds where active = 1;
@@ -180,18 +186,23 @@ EOL,
             from rounds
             where round = :t
         ),
-        last_attempts as (
-            select team_id, letter, max(time) as time
+        last_answers as (
+            select team_id, round, letter, answered, min(time) as time
             from actions
-                 join cur_round using(round)
-            group by team_id, letter
+            join cur_round using (round)
+            group by team_id, round, letter, answered
+        ),
+        last_attempts as (
+            select team_id, round, letter, max(time) as time
+            from last_answers
+            group by team_id, round, letter
         ),
         scores as (
             select sum(points) as s, max(extract(epoch from time - started)) as t, team_id
             from
-                cur_round,
                 last_attempts
-                join actions using(team_id, letter, time)
+                join cur_round using(round)
+                join actions using(team_id, round, letter, time)
             where points > 0
             group by team_id
         ),
@@ -204,6 +215,7 @@ EOL,
         ranked as (
             select *, rank() over w as r
             from all_scores
+            where tiebreak < 9999
             window w as (order by score desc, tiebreak asc)
         )
     insert into teams_per_round(team_id, round, score) 
@@ -215,7 +227,7 @@ EOL,
 EOL,
         FetchType::ProgressRound->value =>  <<<EOL
     select
-        coalesce(teams.name, team_id) as team,
+        teams.name as team,
         action_id, letter, points, answered
     from actions
     join rounds using (round)
@@ -227,6 +239,60 @@ EOL,
     set last_seen = now()
     where team_id = :t
     returning last_seen;
+EOL,
+        FetchType::FetchAllTeams->value => <<<EOL
+    select *, extract('epoch' from (now() - last_seen)) as age_last_seen
+    from teams;
+EOL,
+        FetchType::FetchTeamAnswers->value => /** @lang PostgreSQL */ <<<EOL
+    with
+        last_round as (
+            select max(round) as round
+            from rounds
+            where active = 2
+        ),
+        last_answers as (
+            select team_id, round, letter, min(time) as time, answered
+            from actions
+                join last_round using(round)
+            where team_id = :t
+            group by team_id, round, letter, answered
+        ),
+        last_attempts as (
+            select round, letter, team_id, max(time) as time
+            from last_answers
+            group by round, letter, team_id
+        )
+    select round, letter, time, answered, points, value
+    from last_attempts
+    join actions using(round, letter, team_id, time)
+    join rounds using(round)
+    order by letter;
+EOL,
+        FetchType::FetchAllAnswers->value => /** @lang PostgreSQL */ <<<EOL
+    with
+        last_round as (
+            select max(round) as round
+            from rounds
+            where active = 2
+        ),
+        last_answers as (
+            select team_id, round, letter, min(time) as time, answered
+            from actions
+                 join last_round using(round)
+            group by team_id, round, letter, answered
+        ),
+        last_attempts as (
+            select round, letter, team_id, max(time) as time
+            from last_answers
+            group by round, letter, team_id
+        )
+    select round, teams.name, letter, time, answered, points, value
+    from last_attempts
+        join actions using(round, letter, team_id, time)
+        join rounds using(round)
+        join teams using(team_id)
+    order by letter, team_id;
 EOL
     ];
 
@@ -376,6 +442,15 @@ function get_status($teamRow): array
     ];
     if($teamRow['is_admin']) {
         $ret['round_progress'] = fetch_db_data(FetchType::ProgressRound);
+        $ret['all_teams'] = fetch_db_data(FetchType::FetchAllTeams);
+    }
+    if(!$ret['current_round']) { //there is no current round, we can show responses to previous round
+        if($teamRow['is_admin']) {
+            $ret['all_answers'] = fetch_db_data(FetchType::FetchAllAnswers);
+        }
+        else {
+            $ret['team_answers'] = fetch_db_data(FetchType::FetchTeamAnswers, $teamRow['team_id']);
+        }
     }
     if($teamRow['last_seen'] === null) {
         $teamRow['last_seen'] = fetch_db_data(FetchType::LastSeen, $teamRow['team_id']);
@@ -413,7 +488,7 @@ function make_guess($team_row): array
 function rename_team($teamRow): array
 {
     $newName = sanitize_team_name(file_get_contents('php://input') ?: '');
-    $updated = fetch_db_data(FetchType::RenameTeam, team_id: $teamRow['team_id'], answer: $newName);
+    $updated = fetch_db_data(FetchType::RenameTeam, team_id: $teamRow['team_id'], answer: substr($newName, 0, 16));
     return [
         'updated' => $updated['updated']
     ];
@@ -508,7 +583,19 @@ function reset_data(): array
 {
     pg()->beginTransaction();
     try{
-        pg()->exec('DELETE FROM teams_per_round; DELETE FROM actions; UPDATE rounds SET active=0, started=NULL; UPDATE teams SET cooldown_end=NOW(), cooldown_length=30, last_seen=null;');
+        pg()->exec('DELETE FROM teams_per_round;');
+        pg()->exec('DELETE FROM actions;');
+        pg()->exec('UPDATE rounds SET active=0, started=NULL;');
+        pg()->exec(
+<<<EOL
+            with rr as (
+                select team_id, rank() over (order by team_id) as r from teams
+            ) 
+            UPDATE teams SET cooldown_end=NOW(), cooldown_length=30, last_seen=null, name='Team ' || r
+            from rr
+            where rr.team_id = teams.team_id;
+EOL
+        );
         pg()->commit();
         return ['ok'=>true];
     } catch(Throwable $e){
