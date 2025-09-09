@@ -1,4 +1,37 @@
 (function () {
+  /**
+   * Constants and lightweight enums
+   */
+  const POLL_MS = 60000;
+  const TRANSITION_BUFFER_MS = 50;
+  const CLOCK_TICK_MS = 1000;
+  const CMDS = /** @type {const} */ ({ STATUS: 'status' });
+  const MODES = /** @type {const} */ ({ PRESENT: 'present', GRID: 'grid' });
+  const SELECTORS = /** @type {const} */ ({
+    present: '#present',
+    layout: '#layout',
+    strip: '#strip',
+    q1: '[data-slot="q1"]',
+    q2: '[data-slot="q2"]',
+    q3: '[data-slot="q3"]',
+    q4: '[data-slot="q4"]',
+    q5: '[data-slot="q5"]',
+    info: '[data-slot="info"]'
+  });
+
+  /**
+   * @typedef {{ round:number, letter:string, question:string, hint1?:string, hint2?:string, question_type?:string }} Question
+   * @typedef {{ round:number, active:number, name?:string, value?:number, length?:number, started?:string }} Round
+   * @typedef {{ team_id?:string, name?:string, is_admin?:boolean, now?:string|number }} Team
+   * @typedef {{
+   *   team?: Team,
+   *   current_round?: Round | null,
+   *   all_rounds?: Round[],
+   *   overall_totals?: { team_id:string, round:number, score:number }[],
+   *   questions?: Question[],
+   * }} StatusResponse
+   */
+
   function readCookie(name) {
     const all = typeof document !== 'undefined' && typeof document.cookie === 'string' ? document.cookie : '';
     const parts = all.split(';');
@@ -69,12 +102,12 @@
   };
 
   const slots = {
-    q1: document.querySelector('[data-slot="q1"]'),
-    q2: document.querySelector('[data-slot="q2"]'),
-    q3: document.querySelector('[data-slot="q3"]'),
-    q4: document.querySelector('[data-slot="q4"]'),
-    q5: document.querySelector('[data-slot="q5"]'),
-    info: document.querySelector('[data-slot="info"]'),
+    q1: document.querySelector(SELECTORS.q1),
+    q2: document.querySelector(SELECTORS.q2),
+    q3: document.querySelector(SELECTORS.q3),
+    q4: document.querySelector(SELECTORS.q4),
+    q5: document.querySelector(SELECTORS.q5),
+    info: document.querySelector(SELECTORS.info),
   };
 
   let current = { round: null, started: null, length: null };
@@ -83,11 +116,12 @@
   let transitionArmed = false; // gate to avoid duplicate refresh on zero
   let serverSkewMs = 0;        // server_now_ms - Date.now()
   let questions = [];
-  let mode = 'present';
+  let mode = MODES.PRESENT;
   let idx = 0; // current question index in present mode
+  let lastError = null; // Track last error for user feedback
 
-  const presentRoot = document.getElementById('present');
-  const layoutRoot = document.getElementById('layout');
+  const presentRoot = document.querySelector(SELECTORS.present);
+  const layoutRoot = document.querySelector(SELECTORS.layout);
 
   function fmtClock(sec) {
     sec = Math.max(0, Math.floor(sec));
@@ -143,7 +177,7 @@
     transitionArmed = !!nextTransitionAt;
     if (nextTransitionAt) {
       const nowAdj = Date.now() + serverSkewMs;
-      const delay = Math.max(0, nextTransitionAt - nowAdj) + 50; // buffer
+      const delay = Math.max(0, nextTransitionAt - nowAdj) + TRANSITION_BUFFER_MS;
       transitionTimer = setTimeout(() => {
         transitionArmed = false;
         fetchStatus();
@@ -168,46 +202,78 @@
     }
   }
 
+  /**
+   * Common question rendering logic
+   * @param {Question} q - Question object
+   * @param {boolean} isGrid - Whether this is for grid mode (affects hint promotion)
+   * @returns {HTMLElement} Rendered question wrapper
+   */
+  function createQuestionElement(q, isGrid = false) {
+    const wrap = document.createElement('div');
+    wrap.className = 'qwrap';
+    
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = q.letter + '.';
+    
+    const body = document.createElement('div');
+    body.className = 'body';
+    
+    if (q.question_type === 'image/png') {
+      const img = document.createElement('img');
+      img.alt = 'Question ' + q.letter;
+      img.src = 'data:image/png;base64,' + q.question;
+      body.appendChild(img);
+    } else {
+      const text = document.createElement('div');
+      text.className = 'text';
+      text.textContent = q.question || '';
+      body.appendChild(text);
+      
+      let h1 = null, h2 = null;
+      if (q.hint1) { 
+        h1 = document.createElement('div'); 
+        h1.className = 'hint'; 
+        h1.textContent = 'Hint 1: ' + q.hint1; 
+        body.appendChild(h1); 
+      }
+      if (q.hint2) { 
+        h2 = document.createElement('div'); 
+        h2.className = 'hint'; 
+        h2.textContent = 'Hint 2: ' + q.hint2; 
+        body.appendChild(h2); 
+      }
+      
+      // In grid mode, promote the latest hint
+      if (isGrid) {
+        const promote = h2 || h1;
+        if (promote) { 
+          promote.classList.add('promote'); 
+          wrap.classList.add('has-promote'); 
+        }
+      }
+    }
+    
+    wrap.appendChild(title);
+    wrap.appendChild(body);
+    return wrap;
+  }
+
   function renderQuestions(data) {
     const qs = questions.slice(0, 5);
     const targets = [slots.q1, slots.q2, slots.q3, slots.q4, slots.q5];
     targets.forEach((t, i) => {
       if (!t) return;
       const q = qs[i];
-      t.innerHTML = '';
+      t.replaceChildren();
       if (!q) return;
-      const wrap = document.createElement('div');
-      wrap.className = 'qwrap';
-      const title = document.createElement('div');
-      title.className = 'title';
-      title.textContent = q.letter + '.';
-      const body = document.createElement('div');
-      body.className = 'body';
-      if (q.question_type === 'image/png') {
-        const img = document.createElement('img');
-        img.alt = 'Question ' + q.letter;
-        img.src = 'data:image/png;base64,' + q.question;
-        body.appendChild(img);
-      } else {
-        const text = document.createElement('div');
-        text.className = 'text';
-        text.textContent = q.question || '';
-        body.appendChild(text);
-        let h1 = null, h2 = null;
-        if (q.hint1) { h1 = document.createElement('div'); h1.className = 'hint'; h1.textContent = 'Hint 1: ' + q.hint1; body.appendChild(h1); }
-        if (q.hint2) { h2 = document.createElement('div'); h2.className = 'hint'; h2.textContent = 'Hint 2: ' + q.hint2; body.appendChild(h2); }
-        const promote = h2 || h1;
-        if (promote) { promote.classList.add('promote'); wrap.classList.add('has-promote'); }
-      }
-      wrap.appendChild(title);
-      wrap.appendChild(body);
+      
+      const wrap = createQuestionElement(q, true);
       t.appendChild(wrap);
 
       // Allow clicking a grid cell to switch to Present mode on that question
       t.style.cursor = 'pointer';
-      t.onclick = () => { idx = i; setMode('present'); };
-
-      // Text auto-sizes via CSS container units
+      t.onclick = () => { idx = i; setMode(MODES.PRESENT); };
     });
   }
 
@@ -254,45 +320,20 @@
 
   function renderPresent() {
     if (!presentRoot) return;
-    presentRoot.innerHTML = '';
+    presentRoot.replaceChildren();
     const q = questions[idx];
     if (!q) return;
+    
     const panel = document.createElement('div');
     panel.className = 'panel';
-    const wrap = document.createElement('div');
-    wrap.className = 'qwrap';
-    const title = document.createElement('div');
-    title.className = 'title';
-    title.textContent = q.letter + '.';
-    const body = document.createElement('div');
-    body.className = 'body';
-    if (q.question_type === 'image/png') {
-      const img = document.createElement('img');
-      img.alt = 'Question ' + q.letter;
-      img.src = 'data:image/png;base64,' + q.question;
-      body.appendChild(img);
-    } else {
-      const text = document.createElement('div');
-      text.className = 'text';
-      text.textContent = q.question || '';
-      body.appendChild(text);
-      let h1 = null, h2 = null;
-      if (q.hint1) { h1 = document.createElement('div'); h1.className = 'hint'; h1.textContent = 'Hint 1: ' + q.hint1; body.appendChild(h1); }
-      if (q.hint2) { h2 = document.createElement('div'); h2.className = 'hint'; h2.textContent = 'Hint 2: ' + q.hint2; body.appendChild(h2); }
-      const promote = h2 || h1;
-      if (promote) { promote.classList.add('promote'); wrap.classList.add('has-promote'); }
-    }
-    wrap.appendChild(title);
-    wrap.appendChild(body);
+    const wrap = createQuestionElement(q, false); // No hint promotion in presentation mode
     panel.appendChild(wrap);
     presentRoot.appendChild(panel);
-
-    // Text auto-sizes via CSS container units
   }
 
   function setMode(newMode) {
     mode = newMode;
-    if (mode === 'present') {
+    if (mode === MODES.PRESENT) {
       layoutRoot && layoutRoot.classList.add('hidden');
       presentRoot && presentRoot.classList.remove('hidden');
       renderPresent();
@@ -303,18 +344,41 @@
     }
   }
 
+  /**
+   * Show error message to user
+   * @param {string} message - Error message to display
+   */
+  function showError(message) {
+    lastError = message;
+    if (presentRoot) {
+      presentRoot.replaceChildren();
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message';
+      errorDiv.style.cssText = 'display: flex; align-items: center; justify-content: center; height: 100%; color: #ef4444; font-size: 2rem; text-align: center;';
+      errorDiv.textContent = message;
+      presentRoot.appendChild(errorDiv);
+    }
+  }
+
   async function fetchStatus() {
     try {
       if (!getTeam()) { ensureTeamPrompt(); return; }
-      const resp = await fetch(API('status'));
+      const resp = await fetch(API(CMDS.STATUS));
+      
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      }
+      
       const data = await resp.json();
+      lastError = null; // Clear any previous errors
+      
       // Keep questions sorted A..E and cached
       questions = (data.questions || []).slice().sort((a, b) => a.letter.localeCompare(b.letter));
       // Align client to server clock if provided
       updateServerSkew(data);
       renderInfo(data);
       renderLeaderboard(data);
-      if (mode === 'present') {
+      if (mode === MODES.PRESENT) {
         // Clamp idx and re-render
         if (idx >= questions.length) idx = Math.max(0, questions.length - 1);
         renderPresent();
@@ -324,28 +388,31 @@
       // Re-arm countdown to next hint/end based on new status
       armTransitionTimer();
     } catch (e) {
-      // best-effort display; keep clock ticking
+      console.error('Fetch error:', e);
+      const errorMsg = e instanceof Error ? e.message : 'Network error';
+      showError(`Connection Error: ${errorMsg}`);
+      // Keep clock ticking even on error
     }
   }
 
   // Boot
   fetchStatus();
-  setMode('present');
-  setInterval(fetchStatus, 60000);
-  setInterval(tickClock, 1000);
+  setMode(MODES.PRESENT);
+  setInterval(fetchStatus, POLL_MS);
+  setInterval(tickClock, CLOCK_TICK_MS);
 
   // Navigation: Right/Space/Click -> next, Left -> prev. After last, switch to grid mode.
   function next() {
-    if (mode !== 'present') return;
+    if (mode !== MODES.PRESENT) return;
     if (idx < Math.min(5, questions.length) - 1) {
       idx++;
       renderPresent();
     } else {
-      setMode('grid');
+      setMode(MODES.GRID);
     }
   }
   function prev() {
-    if (mode !== 'present') return;
+    if (mode !== MODES.PRESENT) return;
     if (idx > 0) {
       idx--;
       renderPresent();
@@ -354,16 +421,16 @@
   window.addEventListener('keydown', (e) => {
     const k = e.key;
     // Global toggles
-    if (k === 'g' || k === 'G' || k === 'Escape') { setMode('grid'); return; }
-    if (k === 'p' || k === 'P') { idx = 0; setMode('present'); return; }
+    if (k === 'g' || k === 'G' || k === 'Escape') { setMode(MODES.GRID); return; }
+    if (k === 'p' || k === 'P') { idx = 0; setMode(MODES.PRESENT); return; }
     // Present-mode navigation
-    if (mode === 'present') {
+    if (mode === MODES.PRESENT) {
       if (k === 'ArrowRight' || k === ' ' || k === 'Spacebar') { e.preventDefault(); next(); }
       if (k === 'ArrowLeft') { e.preventDefault(); prev(); }
     }
   });
-  window.addEventListener('click', () => { if (mode === 'present') next(); });
+  window.addEventListener('click', () => { if (mode === MODES.PRESENT) next(); });
   window.addEventListener('resize', () => {
-    if (mode === 'present') renderPresent(); else renderQuestions({});
+    if (mode === MODES.PRESENT) renderPresent(); else renderQuestions({});
   });
 })();
