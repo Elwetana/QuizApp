@@ -45,7 +45,7 @@ Furthermore, the application will be accessing Postgresql database as the user q
 The primary access device is a mobile phone, desktop performance and ergonomics are not important.
 
 # Server
-The server is accessed on URL “https://www.argenite.org/quiz.php?team=<team code>” where <team code> is 8 characters hexa string (e.g. DEAD1337). If the team code is not present or if it does not match any of the known teams (as per table teams), it will return Error 403
+The server is accessed on URL “https://www.argenite.org/quiz.php?team=<team code>” where <team code> is 8 characters hex string (e.g. DEAD1337). If the team code is not present or if it does not match any of the known teams (as per table teams), it will return Error 403
 
 If the team exists, the server will return base HTML of the application, with links to JS and CSS files.
 
@@ -93,7 +93,7 @@ If there is a match, the team will be scored, based on the following rules:
 * If we are within this interval (i.e. now() < started + length  * interval ‘1 second’, then use base score
 * For every complete elapsed interval of length seconds, divide the base score by 2 (so e.g. if  started + 2  * length  * interval ‘1 second’ < now() < started + 3  * length  * interval ‘1 second’, divide by 4
 
-Finally update actions table and return 0. The teams do not now if the guess was successful or not.
+Finally update actions table and return 0. The teams do not know if the guess was successful or not.
 
 ## Rules for scoring end of round
 When admin team sets active column of table Rounds to 2, that round will be scored. Follow these rules:
@@ -133,15 +133,67 @@ The Admin “team” has one more tab:
 ## Round
 This has row of buttons to select round and a numeric input field to set value of column active and a submit button.
 
+# Quiz Master Client
+
+Quiz master has a different client that connects to the server but uses the same server as the mobile client does. This
+client is optimized for 16:9 displays (like TVs and projector) running at HD resolution. The client will receive the list
+of questions from the server, information about results and display them in the following manner:
+
+## If there's Active Round
+
+There are two modes, 'presentation' and 'grid'. It is possible to switch between them by pressing 'P' and 'G' respectively.
+
+### Presentation mode
+
+The questions are first displayed in the "presentation mode". In this mode, the client displays sequence of "slides" and
+user can move forward and back by pressing right arrow or space (forward) or left arrow (back). Each slide shows just
+one question. If there are hints, they will be displayed too, in the same font size. The font size should be large and
+try to fit the whole slide.
+
+### Grid view
+
+After going forward from the last slide, the master client switches into the "grid mode". In this mode the screen is divided
+into a grid of two rows of three squares and a sidebar on the right. The proportion of the grid is (obviously) 13.5 : 9 and
+proportion of the sidebar is the remainder, 2.5 : 9. The application should strictly maintain 16:9 overall size, even on 
+devices that offer different aspect ratio.
+
+In grid mode, top three squares and two squares on the left in the second row contain question, the remaining square (
+bottom right) contains a countdown and name of the round.
+
+Questions on the grid display latest hint text in larger font than the rest. Overall, we again try to fit the text to the
+box, even if it means that different boxes have different font sizes.
+
+The countdown shows the time remaining in the round. The server supplies information about current round, property 'length',
+this is time in seconds from the start of the round to the display of the first hint. After half that time (i.e. length / 2 
+seconds) the second hint is displayed and again after length / 2 seconds the round ends. The overall length of the round
+is therefore 2 * length seconds.
+
+The sidebar on the right shows the current leaderboard.
+
+## If there's no Active Round
+
+If the quiz haven't started yet (i.e all rounds have active == 0), then don't display anything, but text "Game haven't 
+started yet". Otherwise, the server will supply the information about the question from the last finished round and list
+all guesses made by teams. We want to display the questions as follows:
+
+* Display only the question, ignore the hints
+* Show all guesses for that question, formatted in the following way:
+  * If several teams submitted the same guess, group them together and add the number (e.g. 3 x right answer)
+  * Colour the background of the answer depending on the score assigned to it.
+
+Each guess has property score and property value. If score == value than this was successful guess before first hint
+was displayed, it should have the best background colour. If score == value / 2, it was successful after the first but
+before the second hint. Finally, score == value / 4 means it was submitted after second hint. 
+
 # Changes from the design to be implemented
 
-* [ ] Do not return points for the current round, the team will only learn about the score from the round at the end of the round
-* [ ] Feed client information about all rounds, so that the teams can see how many points can be won in future
-* [ ] Allow pictures as questions
-* [ ] Unify Questions and Guess tabs
+* [x] Do not return points for the current round, the team will only learn about the score from the round at the end of the round
+* [x] Feed client information about all rounds, so that the teams can see how many points can be won in future
+* [x] Allow pictures as questions
+* [x] Unify Questions and Guess tabs
 * [ ] Add Help tab for Players
 * [ ] Better info about previous actions
 * [ ] Better info about situation
-* [ ] Store answer before normalizing (but after some cleaning)
-* [ ] Create 'quiz master' client
-* [ ] Live round results for admin in admin tab
+* [x] Store answer before normalizing (but after some cleaning)
+* [x] Create 'quiz master' client
+* [x] Live round results for admin in admin tab

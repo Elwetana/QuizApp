@@ -1,5 +1,50 @@
 /* Unified player client (Questions + inline Answer) with cleaned UI strings */
 (function () {
+  /**
+   * Constants and lightweight enums
+   */
+  const POLL_MS = 60000;
+  const CMDS = /** @type {const} */ ({ STATUS: 'status', GUESS: 'guess', RENAME: 'rename', ROUND: 'round', DEFINE: 'define', RESET: 'reset' });
+  const REASONS = /** @type {const} */ ({ COOLDOWN: 'cooldown_active', NO_LETTER: 'no_letter', NO_ACTIVE: 'no_active', NOT_ACCEPTED: 'not_accepted' });
+  const SELECTORS = /** @type {const} */ ({
+    tabsButtons: '#tabs button',
+    tab: '.tab',
+    adminTab: '#adminTab',
+    guessTabBtn: '#tabs button[data-tab="guess"]',
+    guessSection: '#guess',
+    historyTabBtn: '#tabs button[data-tab="history"]',
+    historySection: '#history',
+    questionsList: '#questionsList',
+    scoreboard: '#scoreboard',
+    roundButtons: '#roundButtons',
+    progressFilter: '#progressFilter',
+    progress: '#progress',
+    progressSummary: '#progressSummary',
+    roundResult: '#roundResult',
+    defineFile: '#defineFile',
+    defineBtn: '#defineBtn',
+    openMaster: '#openMaster',
+    startRound: '#startRound',
+    finishRound: '#finishRound',
+    closeRound: '#closeRound',
+    resetBtn: '#resetBtn',
+    foot: '#foot'
+  });
+
+  /**
+   * @typedef {{ round:number, letter:string, question:string, hint1?:string, hint2?:string, question_type?:string }} Question
+   * @typedef {{ round:number, active:number, name?:string, value?:number, length?:number, started?:string }} Round
+   * @typedef {{ time:string, round:number, letter:string, answered:string }} Action
+   * @typedef {{
+   *   team?: { team_id?:string, name?:string, is_admin?:boolean },
+   *   current_round?: Round | null,
+   *   all_rounds?: Round[],
+   *   overall_totals?: { team_id:string, round:number, score:number }[],
+   *   my_actions?: Action[],
+   *   questions?: Question[],
+   *   round_progress?: { team?:string, name?:string, letter?:string, answered?:string, points?:number }[],
+   * }} StatusResponse
+   */
   const qs = new URLSearchParams(location.search);
   const TEAM = (qs.get('team') || '').toUpperCase();
   const API = (cmd, params = {}) => {
@@ -24,12 +69,12 @@
   if (cap) cap.textContent = TEAM || 'Pub Quiz';
 
   // Tabs
-  $$('#tabs button').forEach((btn) =>
+  $$(SELECTORS.tabsButtons).forEach((btn) =>
     btn.addEventListener('click', () => {
-      $$('#tabs button').forEach((b) => b.classList.remove('active'));
+      $$(SELECTORS.tabsButtons).forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       const id = btn.dataset.tab;
-      $$('.tab').forEach((s) => s.classList.remove('active'));
+      $$(SELECTORS.tab).forEach((s) => s.classList.remove('active'));
       document.getElementById(id).classList.add('active');
     })
   );
@@ -65,9 +110,9 @@
   }
 
   function renderRoundProgressFilter(data) {
-    const row = document.getElementById('progressFilter');
+    const row = document.querySelector(SELECTORS.progressFilter);
     if (!row) return;
-    row.innerHTML = '';
+    row.replaceChildren();
     const qs = Array.isArray(data.questions) ? data.questions : [];
     const letters = Array.from(new Set(qs.map(q => q.letter))).sort();
     if (!letters.length) return;
@@ -87,9 +132,9 @@
   }
 
   function renderRoundProgress(data) {
-    const wrap = document.getElementById('progress');
+    const wrap = document.querySelector(SELECTORS.progress);
     if (!wrap) return;
-    wrap.innerHTML = '';
+    wrap.replaceChildren();
     const rows = Array.isArray(data.round_progress) ? data.round_progress : [];
     if (!rows.length) { wrap.textContent = 'No guesses yet.'; return; }
     const filtered = progressFilter ? rows.filter(r => (r.letter || '').toUpperCase() === progressFilter) : rows;
@@ -115,9 +160,9 @@
   }
 
   function renderRoundProgressSummary(data) {
-    const wrap = document.getElementById('progressSummary');
+    const wrap = document.querySelector(SELECTORS.progressSummary);
     if (!wrap) return;
-    wrap.innerHTML = '';
+    wrap.replaceChildren();
     const rows = Array.isArray(data.round_progress) ? data.round_progress : [];
     if (!rows.length) { wrap.textContent = 'No data.'; return; }
     // Count correct per letter (points >= 0 considered correct, including very late 0)
@@ -150,7 +195,7 @@
   function renderHistory(data) {
     const wrap = $('#historyList');
     if (!wrap) return;
-    wrap.innerHTML = '';
+    wrap.replaceChildren();
     const actions = data.my_actions || [];
     if (!actions.length) { wrap.textContent = 'No actions yet.'; return; }
 
@@ -180,7 +225,7 @@
   function renderCurrentRound(data) {
     const el = $('#currentRound');
     if (!el) return;
-    el.innerHTML = '';
+    el.replaceChildren();
     const cr = data.current_round;
     if (!cr) { el.textContent = 'No active round.'; return; }
     currentRound = Number(cr.round);
@@ -217,16 +262,19 @@
       });
       return ul;
     };
-    const mount = (id, nodeOrText) => { const el = document.getElementById(id); if (!el) return; el.innerHTML=''; if (typeof nodeOrText === 'string') { el.textContent = nodeOrText; } else { el.appendChild(nodeOrText); } };
+    const mount = (id, nodeOrText) => { const el = document.getElementById(id); if (!el) return; el.replaceChildren(); if (typeof nodeOrText === 'string') { el.textContent = nodeOrText; } else { el.appendChild(nodeOrText); } };
     mount('roundsCompleted', mkList(byActive['2']));
     mount('roundsCurrent', mkList(byActive['1']));
     mount('roundsFuture', mkList(byActive['0']));
   }
 
   function renderQuestions(data) {
-    const list = $('#questionsList');
+    const list = document.querySelector(SELECTORS.questionsList);
     if (!list) return;
-    list.innerHTML = '';
+    // Preserve scroll position and focus target (answer textarea) across re-render
+    const prevScroll = list.scrollTop;
+    const activeId = document.activeElement && document.activeElement.classList.contains('answer-input') ? document.activeElement.id : '';
+    list.replaceChildren();
     const qs = data.questions || [];
     // Build latest answer map per letter for the current round
     const latest = {};
@@ -253,6 +301,7 @@
         const card = document.createElement('div');
         card.className = 'q';
         card.style.margin = '0 0 .75rem 0';
+        card.setAttribute('data-letter', q.letter);
         const parts = [];
         if (q.question_type === 'image/png') {
           parts.push(`<div><b>${q.letter}.</b></div>`);
@@ -268,13 +317,13 @@
         parts.push(`
           <label>
             <span>Answer</span>
-            <textarea class="answer-input" rows="3" placeholder="Type your answer"></textarea>
+            <textarea class="answer-input" id="answer-${q.letter}" rows="3" placeholder="Type your answer" aria-label="Answer for question ${q.letter}" enterkeyhint="send" autocomplete="off" autocapitalize="none" autocorrect="off" inputmode="text"></textarea>
           </label>
           <div class="row">
             <button data-action="submit" class="primary">Submit</button>
             <button data-action="back">Back</button>
           </div>
-          <div class="result" data-role="guessResult"></div>
+          <div class="result" data-role="guessResult" role="status" aria-live="polite" aria-atomic="true"></div>
         `);
         card.innerHTML = parts.join('');
         list.appendChild(card);
@@ -293,16 +342,27 @@
         if (ansEl) {
           if (editingAnswer && typeof answerDraft === 'string' && answerDraftLetter === selectedLetter) ansEl.value = answerDraft;
           ansEl.addEventListener('input', () => { answerDraft = ansEl.value; editingAnswer = true; answerDraftLetter = selectedLetter; });
+          // Keyboard-first: Enter submits when not using Shift (single-line answers). Ctrl/Cmd+Enter also submits. Escape goes back.
+          ansEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); back && back.click(); return; }
+            if (e.key === 'Enter' && ((e.ctrlKey || e.metaKey) || !e.shiftKey)) {
+              e.preventDefault(); submit && submit.click();
+            }
+          });
+          // Move focus into the answer textbox
+          setTimeout(() => { try { ansEl.focus(); ansEl.selectionStart = ansEl.value.length; } catch(_) {} }, 0);
         }
         return;
       }
     }
 
     // Default list view (Answer buttons only for players)
+    const frag = document.createDocumentFragment();
     qs.forEach((q) => {
       const card = document.createElement('div');
       card.className = 'q';
       card.style.margin = '0 0 .75rem 0';
+      card.setAttribute('data-letter', q.letter);
       const parts = [];
       if (q.question_type === 'image/png') {
         parts.push(`<div><b>${q.letter}.</b></div>`);
@@ -322,12 +382,20 @@
         const ansBtn = document.createElement('button');
         ansBtn.textContent = 'Answer';
         ansBtn.className = 'primary';
+        ansBtn.setAttribute('aria-label', `Answer question ${q.letter}`);
         ansBtn.addEventListener('click', () => { selectedLetter = q.letter; renderQuestions(lastStatus || { questions: [] }); });
         act.appendChild(ansBtn);
         card.appendChild(act);
       }
-      list.appendChild(card);
+      frag.appendChild(card);
     });
+    list.appendChild(frag);
+    // Restore scroll position and focus if applicable
+    list.scrollTop = prevScroll;
+    if (activeId) {
+      const el = document.getElementById(activeId);
+      if (el) { try { el.focus(); el.selectionStart = el.value.length; } catch(_) {} }
+    }
   }
 
   function renderScoreboard(data) {
@@ -355,20 +423,21 @@
       html += `<td><b>${t.total}</b></td></tr>`;
     });
     html += '</tbody></table>';
-    $('#scoreboard').innerHTML = html;
+    const sc = document.querySelector(SELECTORS.scoreboard);
+    if (sc) sc.innerHTML = html;
 
     if (teamList.length) {
       const winner = teamList[0];
       const note = document.createElement('div');
       note.innerHTML = `Overall leader: <b>${winner.team_id}</b> (${winner.total} pts)`;
-      $('#scoreboard').prepend(note);
+      if (sc) sc.prepend(note);
     }
   }
 
   function renderAdminRoundButtons(data) {
-    const wrap = $('#roundButtons');
+    const wrap = document.querySelector(SELECTORS.roundButtons);
     if (!wrap) return;
-    wrap.innerHTML = '';
+    wrap.replaceChildren();
     let list = Array.isArray(data.all_rounds) ? data.all_rounds.map(r => Number(r.round)) : [];
     list = Array.from(new Set(list)).sort((a, b) => a - b);
     if (!list.length) list = Array.from({ length: 20 }, (_, i) => i + 1);
@@ -412,20 +481,20 @@
       // Preserve current inline answer (if any) before re-rendering
       const activeAnswer = document.querySelector('.answer-input');
       if (activeAnswer) { answerDraft = activeAnswer.value; editingAnswer = true; answerDraftLetter = selectedLetter; }
-      const resp = await fetch(API('status'));
+      const resp = await fetch(API(CMDS.STATUS));
       const data = await resp.json();
 
       isAdmin = toBool(data.team?.is_admin);
-      $('#adminTab').classList.toggle('hidden', !isAdmin);
+      document.querySelector(SELECTORS.adminTab).classList.toggle('hidden', !isAdmin);
       // Hide legacy Guess tab/section now that answering is inline
-      const guessBtn = document.querySelector('#tabs button[data-tab="guess"]');
-      const guessSection = document.getElementById('guess');
+      const guessBtn = document.querySelector(SELECTORS.guessTabBtn);
+      const guessSection = document.querySelector(SELECTORS.guessSection);
       if (guessBtn) guessBtn.classList.add('hidden');
       if (guessSection) guessSection.classList.add('hidden');
 
       // Hide History for admin teams
-      const historyBtn = document.querySelector('#tabs button[data-tab="history"]');
-      const historySection = document.getElementById('history');
+      const historyBtn = document.querySelector(SELECTORS.historyTabBtn);
+      const historySection = document.querySelector(SELECTORS.historySection);
       if (historyBtn) historyBtn.classList.toggle('hidden', isAdmin);
       if (historySection) historySection.classList.toggle('hidden', isAdmin);
       // If admin and History was active, switch to Admin or Questions
@@ -439,25 +508,30 @@
       if (!editingCaption && cap) cap.textContent = teamName || TEAM;
 
       lastStatus = data;
-      renderCurrentRound(data);
-      renderQuestions(data);
-      renderScoreboard(data);
-      renderHistory(data);
-      renderRoundsOverview(data);
-      renderAdminRoundButtons(data);
-      if (isAdmin) {
-        renderRoundProgressFilter(data);
-        renderRoundProgress(data);
-        renderRoundProgressSummary(data);
-      }
-      $('#foot').textContent = `Team ${TEAM}`;
+      // Batch DOM updates in a frame to reduce layout thrash
+      requestAnimationFrame(() => {
+        renderCurrentRound(data);
+        renderQuestions(data);
+        renderScoreboard(data);
+        renderHistory(data);
+        renderRoundsOverview(data);
+        renderAdminRoundButtons(data);
+        if (isAdmin) {
+          renderRoundProgressFilter(data);
+          renderRoundProgress(data);
+          renderRoundProgressSummary(data);
+        }
+        const foot = document.querySelector(SELECTORS.foot);
+        if (foot) foot.textContent = `Team ${TEAM}`;
+      });
       // Restore inline answer draft after DOM update
       if (selectedLetter) {
         const restored = document.querySelector('.answer-input');
         if (restored && typeof answerDraft === 'string' && editingAnswer && answerDraftLetter === selectedLetter) restored.value = answerDraft;
       }
     } catch (e) {
-      $('#foot').textContent = 'Disconnected. Retrying...';
+      const foot = document.querySelector(SELECTORS.foot);
+      if (foot) foot.textContent = 'Disconnected. Retrying...';
     }
   }
 
@@ -471,7 +545,7 @@
     if (!answer) { if (resEl) resEl.textContent = 'Choose a question and enter an answer.'; return; }
     if (resEl) resEl.textContent = 'Submitting...';
     try {
-      const resp = await fetch(API('guess', { letter: question }), {
+      const resp = await fetch(API(CMDS.GUESS, { letter: question }), {
         method: 'POST',
         body: answer,
         headers: { 'Content-Type': 'text/plain' },
@@ -480,17 +554,18 @@
       if (typeof data.points === 'number') {
         const pts = data.points;
         if (pts > 0) {
-          if (resEl) resEl.textContent = 'Submitted!';
+          if (resEl) { resEl.textContent = 'Submitted!'; try { resEl.focus(); } catch(_) {} }
           setTimeout(() => { selectedLetter = null; editingAnswer = false; answerDraft = ''; answerDraftLetter = null; fetchStatus(); }, 1500);
         } else {
-          const reason = data.reason || 'not_accepted';
-          const msg = {
-            cooldown_active: 'On cooldown. Try later.',
-            no_letter: 'No question selected.',
-            no_active: 'No active round.',
-            not_accepted: 'Not accepted.',
-          }[reason] || 'Not accepted.';
-          if (resEl) resEl.textContent = msg;
+          const reason = data.reason || REASONS.NOT_ACCEPTED;
+          const msgs = /** @type {Record<string,string>} */ ({
+            [REASONS.COOLDOWN]: 'On cooldown. Try later.',
+            [REASONS.NO_LETTER]: 'No question selected.',
+            [REASONS.NO_ACTIVE]: 'No active round.',
+            [REASONS.NOT_ACCEPTED]: 'Not accepted.',
+          });
+          const msg = msgs[reason] || 'Not accepted.';
+          if (resEl) { resEl.textContent = msg; try { resEl.focus(); } catch(_) {} }
         }
       } else {
         if (resEl) resEl.textContent = 'Server error.';
@@ -510,7 +585,7 @@
     const map = { 0: 'Closing...', 1: 'Starting...', 2: 'Finishing...' };
     $('#roundResult').textContent = map[active] || 'Updating...';
     try {
-      const resp = await fetch(API('round', { round, active }));
+      const resp = await fetch(API(CMDS.ROUND, { round, active }));
       const data = await resp.json();
       if (data.ok) {
         const done = { 0: 'Closed.', 1: 'Started.', 2: 'Finished and scored.' };
@@ -532,7 +607,7 @@
     const btn = $('#resetBtn');
     if (btn) btn.disabled = true;
     try {
-      const resp = await fetch(API('reset'));
+      const resp = await fetch(API(CMDS.RESET));
       const data = await resp.json();
       resEl.textContent = data.ok ? 'Reset complete.' : 'Reset failed.';
       fetchStatus();
@@ -552,7 +627,7 @@
         const text = await file.text();
         JSON.parse(text); // sanity check
         resEl.textContent = 'Uploading...';
-        const resp = await fetch(API('define'), { method: 'POST', body: text, headers: { 'Content-Type': 'application/json' } });
+        const resp = await fetch(API(CMDS.DEFINE), { method: 'POST', body: text, headers: { 'Content-Type': 'application/json' } });
         const data = await resp.json();
         resEl.textContent = data.ok ? 'Define completed.' : 'Define failed.';
         fetchStatus();
@@ -568,7 +643,7 @@
     const newName = (name || '').trim();
     if (!newName) return false;
     try {
-      const resp = await fetch(API('rename'), { method: 'POST', body: newName, headers: { 'Content-Type': 'text/plain' } });
+      const resp = await fetch(API(CMDS.RENAME), { method: 'POST', body: newName, headers: { 'Content-Type': 'text/plain' } });
       const data = await resp.json();
       return !!data.updated;
     } catch (e) {
