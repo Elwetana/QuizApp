@@ -119,6 +119,8 @@
   let mode = MODES.PRESENT;
   let idx = 0; // current question index in present mode
   let lastError = null; // Track last error for user feedback
+  let finishedRoundMode = false; // Track if we're in finished round results mode
+  let finishedQuestions = []; // Cache finished round questions for navigation
 
   const presentRoot = document.querySelector(SELECTORS.present);
   const layoutRoot = document.querySelector(SELECTORS.layout);
@@ -360,6 +362,137 @@
     }
   }
 
+  /**
+   * Show "Game haven't started yet" message
+   */
+  function showGameNotStarted() {
+    if (presentRoot) {
+      presentRoot.replaceChildren();
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'game-not-started';
+      messageDiv.style.cssText = 'display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text); font-size: 3rem; text-align: center; font-weight: 600;';
+      messageDiv.textContent = "Game haven't started yet";
+      presentRoot.appendChild(messageDiv);
+    }
+  }
+
+  /**
+   * Initialize finished round results mode with slide-based navigation
+   * @param {StatusResponse} data - Status data containing finished round info
+   */
+  function initFinishedRoundResults(data) {
+    // Get the last finished round
+    const finishedRounds = (data.all_rounds || []).filter(r => Number(r.active) === 2);
+    if (!finishedRounds.length) {
+      showError('No finished rounds to display.');
+      return;
+    }
+    
+    const lastRound = finishedRounds.sort((a, b) => Number(b.round) - Number(a.round))[0];
+    const roundQuestions = (data.questions || []).filter(q => Number(q.round) === Number(lastRound.round));
+    
+    if (!roundQuestions.length) {
+      showError('No questions found for finished round.');
+      return;
+    }
+    
+    // Cache questions and answers for navigation
+    finishedQuestions = roundQuestions.map(q => ({
+      ...q,
+      answers: (data.all_answers || []).filter(answer => 
+        Number(answer.round) === Number(lastRound.round) && answer.letter === q.letter
+      )
+    }));
+    
+    finishedRoundMode = true;
+    idx = 0; // Start at first question
+    renderFinishedRoundSlide();
+  }
+
+  /**
+   * Render a single finished round question slide with its results
+   */
+  function renderFinishedRoundSlide() {
+    if (!presentRoot || !finishedRoundMode || !finishedQuestions.length) return;
+    
+    const currentQ = finishedQuestions[idx];
+    if (!currentQ) return;
+    
+    presentRoot.replaceChildren();
+    
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.style.cssText = 'background: var(--card); border: 1px solid #1f2937; border-radius: .8rem; width: 100%; height: 100%; display: grid; grid-template-rows: auto 1fr; padding: 2rem;';
+    
+    // Question header
+    const header = document.createElement('div');
+    header.style.cssText = 'font-size: clamp(28px, min(10cqh, 10cqw), 96px); font-weight: 800; margin-bottom: 1rem; color: var(--text);';
+    header.textContent = `${currentQ.letter}. ${currentQ.question}`;
+    panel.appendChild(header);
+    
+    // Answers container
+    const answersContainer = document.createElement('div');
+    answersContainer.style.cssText = 'overflow-y: auto; display: grid; gap: 1rem; align-content: start;';
+    
+    // Group answers by text and score
+    const answers = currentQ.answers || [];
+    const groupedAnswers = {};
+    answers.forEach(answer => {
+      const key = `${answer.answered}_${answer.points}`;
+      if (!groupedAnswers[key]) {
+        groupedAnswers[key] = {
+          text: answer.answered,
+          points: Number(answer.points),
+          value: Number(answer.value),
+          count: 0,
+          teams: []
+        };
+      }
+      groupedAnswers[key].count++;
+      groupedAnswers[key].teams.push(answer.name || answer.team_id);
+    });
+    
+    // Sort by score (highest first)
+    const sortedAnswers = Object.values(groupedAnswers).sort((a, b) => b.points - a.points);
+    
+    // Render grouped answers
+    sortedAnswers.forEach(group => {
+      const answerDiv = document.createElement('div');
+      answerDiv.style.cssText = 'padding: 1.5rem; border-radius: 0.8rem; display: flex; justify-content: space-between; align-items: center; min-height: 4rem;';
+      
+      // Color coding based on score
+      const scoreRatio = group.value > 0 ? group.points / group.value : 0;
+      if (scoreRatio >= 1) {
+        answerDiv.style.background = '#22c55e'; // Green - full points
+        answerDiv.style.color = '#052e13';
+      } else if (scoreRatio >= 0.5) {
+        answerDiv.style.background = '#f59e0b'; // Orange - half points
+        answerDiv.style.color = '#451a03';
+      } else if (scoreRatio > 0) {
+        answerDiv.style.background = '#ef4444'; // Red - quarter points
+        answerDiv.style.color = '#fef2f2';
+      } else {
+        answerDiv.style.background = '#6b7280'; // Gray - wrong
+        answerDiv.style.color = '#f9fafb';
+      }
+      
+      const answerText = document.createElement('div');
+      answerText.style.cssText = 'font-size: clamp(18px, min(8cqh, 7cqw), 64px); font-weight: 600;';
+      answerText.textContent = group.count > 1 ? `${group.count} × ${group.text}` : group.text;
+      
+      const teamsText = document.createElement('div');
+      teamsText.style.cssText = 'font-size: clamp(14px, min(6cqh, 5cqw), 48px); opacity: 0.8; text-align: right; max-width: 40%;';
+      teamsText.textContent = group.teams.join(', ');
+      
+      answerDiv.appendChild(answerText);
+      answerDiv.appendChild(teamsText);
+      answersContainer.appendChild(answerDiv);
+    });
+    
+    panel.appendChild(answersContainer);
+    presentRoot.appendChild(panel);
+  }
+
   async function fetchStatus() {
     try {
       if (!getTeam()) { ensureTeamPrompt(); return; }
@@ -372,21 +505,39 @@
       const data = await resp.json();
       lastError = null; // Clear any previous errors
       
-      // Keep questions sorted A..E and cached
-      questions = (data.questions || []).slice().sort((a, b) => a.letter.localeCompare(b.letter));
-      // Align client to server clock if provided
-      updateServerSkew(data);
-      renderInfo(data);
-      renderLeaderboard(data);
-      if (mode === MODES.PRESENT) {
-        // Clamp idx and re-render
-        if (idx >= questions.length) idx = Math.max(0, questions.length - 1);
-        renderPresent();
-      } else {
-        renderQuestions({});
+      // Check game state and render accordingly
+      const allRounds = data.all_rounds || [];
+      const hasActiveRound = allRounds.some(r => Number(r.active) === 1);
+      const hasFinishedRounds = allRounds.some(r => Number(r.active) === 2);
+      const allRoundsInactive = allRounds.every(r => Number(r.active) === 0);
+      
+      if (allRoundsInactive) {
+        // Game haven't started yet
+        showGameNotStarted();
+        return;
+      } else if (!hasActiveRound && hasFinishedRounds) {
+        // Show finished round results
+        initFinishedRoundResults(data);
+        return;
+      } else if (hasActiveRound) {
+        // Active round - normal operation
+        finishedRoundMode = false; // Reset finished round mode
+        // Keep questions sorted A..E and cached
+        questions = (data.questions || []).slice().sort((a, b) => a.letter.localeCompare(b.letter));
+        // Align client to server clock if provided
+        updateServerSkew(data);
+        renderInfo(data);
+        renderLeaderboard(data);
+        if (mode === MODES.PRESENT) {
+          // Clamp idx and re-render
+          if (idx >= questions.length) idx = Math.max(0, questions.length - 1);
+          renderPresent();
+        } else {
+          renderQuestions({});
+        }
+        // Re-arm countdown to next hint/end based on new status
+        armTransitionTimer();
       }
-      // Re-arm countdown to next hint/end based on new status
-      armTransitionTimer();
     } catch (e) {
       console.error('Fetch error:', e);
       const errorMsg = e instanceof Error ? e.message : 'Network error';
@@ -403,6 +554,16 @@
 
   // Navigation: Right/Space/Click -> next, Left -> prev. After last, switch to grid mode.
   function next() {
+    if (finishedRoundMode) {
+      // In finished round mode, navigate through questions
+      if (idx < finishedQuestions.length - 1) {
+        idx++;
+        renderFinishedRoundSlide();
+      }
+      // Stay on last question (don't switch to grid mode)
+      return;
+    }
+    
     if (mode !== MODES.PRESENT) return;
     if (idx < Math.min(5, questions.length) - 1) {
       idx++;
@@ -412,6 +573,15 @@
     }
   }
   function prev() {
+    if (finishedRoundMode) {
+      // In finished round mode, navigate through questions
+      if (idx > 0) {
+        idx--;
+        renderFinishedRoundSlide();
+      }
+      return;
+    }
+    
     if (mode !== MODES.PRESENT) return;
     if (idx > 0) {
       idx--;
@@ -420,17 +590,27 @@
   }
   window.addEventListener('keydown', (e) => {
     const k = e.key;
-    // Global toggles
-    if (k === 'g' || k === 'G' || k === 'Escape') { setMode(MODES.GRID); return; }
-    if (k === 'p' || k === 'P') { idx = 0; setMode(MODES.PRESENT); return; }
-    // Present-mode navigation
-    if (mode === MODES.PRESENT) {
+    // Global toggles (only work when not in finished round mode)
+    if (!finishedRoundMode) {
+      if (k === 'g' || k === 'G' || k === 'Escape') { setMode(MODES.GRID); return; }
+      if (k === 'p' || k === 'P') { idx = 0; setMode(MODES.PRESENT); return; }
+    }
+    // Present-mode and finished-round navigation
+    if (mode === MODES.PRESENT || finishedRoundMode) {
       if (k === 'ArrowRight' || k === ' ' || k === 'Spacebar') { e.preventDefault(); next(); }
       if (k === 'ArrowLeft') { e.preventDefault(); prev(); }
     }
   });
-  window.addEventListener('click', () => { if (mode === MODES.PRESENT) next(); });
+  window.addEventListener('click', () => { 
+    if (mode === MODES.PRESENT || finishedRoundMode) next(); 
+  });
   window.addEventListener('resize', () => {
-    if (mode === MODES.PRESENT) renderPresent(); else renderQuestions({});
+    if (finishedRoundMode) {
+      renderFinishedRoundSlide();
+    } else if (mode === MODES.PRESENT) {
+      renderPresent();
+    } else {
+      renderQuestions({});
+    }
   });
 })();

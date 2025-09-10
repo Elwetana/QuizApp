@@ -25,14 +25,14 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 
 /* No promotion overrides in presentation mode: all texts same size */
 
-/* 3x2 square grid sized off viewport height: width = 1.5 * vh */
+/* 3x2 square grid sized to exact 13.5:9 proportion */
 #grid {
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
   gap: var(--square-gap);
   padding: var(--square-gap);
-  width: 150cqh; /* 1.5 * container height */
+  width: 135cqh; /* 13.5 * container height / 9 = 1.5 * container height */
   min-width: 0;
 }
 
