@@ -56,7 +56,7 @@ function fetch_db_data(FetchType $name, string $team_id=null, string $letter=nul
         FetchType::FetchTeam->value => /** @lang PostgreSQL */
         <<<EOL
     SELECT 
-        *, cooldown_end > now() as cooldown_active, extract('epoch' from (now() - last_seen)) as last_seen_age, 
+        *, extract('epoch' from (now() - last_seen)) as last_seen_age, 
         now()::timestamp without time zone as now
     FROM teams 
     WHERE team_id=:t
@@ -73,7 +73,7 @@ EOL,
 EOL,
         FetchType::FetchScoreTotal->value => <<<EOL
     select
-        teams.name as team_id, round, coalesce(score, 0) as score
+        teams.name as team_id, round, coalesce(score, 0) as score, coalesce(round_score, 0) as round_score
     from teams
         cross join rounds
         left join teams_per_round using(team_id, round)
@@ -119,7 +119,7 @@ EOL,
         select
             round, letter,
             :a ~ answer as is_match,
-            value,
+            4 as value,
             case when started + length * interval '1 second' < now() then 0.5 else 1 end as hint1_mod,
             case when started + 1.5 * length * interval '1 second' < now() then 0.5 else 1 end as hint2_mod
         from
@@ -231,11 +231,13 @@ EOL,
             where tiebreak < 9999
             window w as (order by score desc, tiebreak asc)
         )
-    insert into teams_per_round(team_id, round, score) 
-    select team_id, round, value * 100 + (ceil(n_teams.n / 2) - r) as score
+    insert into teams_per_round(team_id, round, score, round_score) 
+    select
+        team_id, round, 
+        case when r <= ceil(n_teams.n / 2) then value * 100 + (ceil(n_teams.n / 2) - r) else 0 end as score,
+        ranked.score * 100 + n_teams.n - r as round_score
     from ranked, n_teams, cur_round
-    where r <= ceil(n_teams.n / 2)
-    on conflict (team_id, round) do update set score = excluded.score 
+    on conflict (team_id, round) do update set score = excluded.score, round_score = excluded.round_score 
     returning team_id;
 EOL,
         FetchType::ProgressRound->value =>  <<<EOL

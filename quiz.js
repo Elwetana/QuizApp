@@ -20,6 +20,7 @@
     progressFilter: '#progressFilter',
     progress: '#progress',
     progressSummary: '#progressSummary',
+    adminTeams: '#adminTeams',
     roundResult: '#roundResult',
     defineFile: '#defineFile',
     defineBtn: '#defineBtn',
@@ -266,6 +267,45 @@
     mount('roundsCompleted', mkList(byActive['2']));
     mount('roundsCurrent', mkList(byActive['1']));
     mount('roundsFuture', mkList(byActive['0']));
+  }
+
+  function renderAdminTeams(data) {
+    const mount = document.querySelector(SELECTORS.adminTeams);
+    if (!mount) return;
+    mount.replaceChildren();
+    const rows = Array.isArray(data.all_teams) ? data.all_teams : [];
+    if (!rows.length) { mount.textContent = 'No teams.'; return; }
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    ['Team ID', 'Name', 'Last seen (s)'].forEach((h) => { const th = document.createElement('th'); th.textContent = h; trh.appendChild(th); });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    rows
+      .slice()
+      .sort((a,b)=>String(a.team_id).localeCompare(String(b.team_id)))
+      .forEach(t => {
+        const tr = document.createElement('tr');
+        const idCell = document.createElement('td');
+        const a = document.createElement('a');
+        a.href = `quiz.php?team=${encodeURIComponent(String(t.team_id || '').toUpperCase())}`;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = String(t.team_id || '').toUpperCase();
+        idCell.appendChild(a);
+        const nameCell = document.createElement('td');
+        nameCell.textContent = String(t.name || '');
+        const ageCell = document.createElement('td');
+        const age = Number(t.age_last_seen);
+        ageCell.textContent = isFinite(age) ? Math.floor(age).toString() : '';
+        tr.appendChild(idCell);
+        tr.appendChild(nameCell);
+        tr.appendChild(ageCell);
+        tbody.appendChild(tr);
+      });
+    table.appendChild(tbody);
+    mount.appendChild(table);
   }
 
   function renderQuestions(data) {
@@ -520,6 +560,7 @@
           renderRoundProgressFilter(data);
           renderRoundProgress(data);
           renderRoundProgressSummary(data);
+          renderAdminTeams(data);
         }
         const foot = document.querySelector(SELECTORS.foot);
         if (foot) foot.textContent = `Team ${TEAM}`;
