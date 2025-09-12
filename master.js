@@ -54,7 +54,7 @@
     if (!t) return;
     try { localStorage.setItem('QUIZ_TEAM', t); } catch(e) {}
     try { sessionStorage.setItem('QUIZ_TEAM', t); } catch(e) {}
-    document.cookie = `QUIZ_TEAM=${encodeURIComponent(t)}; Max-Age=600; Path=/; SameSite=Strict`;
+    document.cookie = `QUIZ_TEAM=${encodeURIComponent(t)}; Max-Age=86400; Path=/; SameSite=Strict`;
   }
 
   let overlayShown = false;
@@ -120,7 +120,8 @@
   let idx = 0; // current question index in present mode
   let lastError = null; // Track last error for user feedback
   let finishedRoundMode = false; // Track if we're in finished round results mode
-  let finishedQuestions = []; // Cache finished round questions for navigation
+  let finishedQuestions = []; // Cache finished round questions (legacy)
+  let finishedSlides = []; // Expanded slides for finished round (supports image/hints)
 
   const presentRoot = document.querySelector(SELECTORS.present);
   const layoutRoot = document.querySelector(SELECTORS.layout);
@@ -169,6 +170,7 @@
     if (el) el.textContent = fmtClock(secondsUntilNextTransition());
     if (nextTransitionAt && transitionArmed && (Date.now() + serverSkewMs) >= nextTransitionAt) {
       transitionArmed = false;
+      if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
       fetchStatus();
     }
   }
@@ -181,6 +183,7 @@
       const nowAdj = Date.now() + serverSkewMs;
       const delay = Math.max(0, nextTransitionAt - nowAdj) + TRANSITION_BUFFER_MS;
       transitionTimer = setTimeout(() => {
+        if (!transitionArmed) return; // de-dup if clock tick already triggered
         transitionArmed = false;
         fetchStatus();
       }, delay);
@@ -396,16 +399,47 @@
       return;
     }
     
-    // Cache questions and answers for navigation
-    finishedQuestions = roundQuestions.map(q => ({
-      ...q,
-      answers: (data.all_answers || []).filter(answer => 
-        Number(answer.round) === Number(lastRound.round) && answer.letter === q.letter
-      )
-    }));
+    // Helper to group answers by text and correctness
+    const groupAnswers = (answers) => {
+      const grouped = {};
+      (answers || []).forEach(answer => {
+        const text = answer.answered;
+        const points = Number(answer.points);
+        const key = String(text);
+        if (!grouped[key]) {
+          grouped[key] = { text, count: 0, anyCorrect: false };
+        }
+        grouped[key].count++;
+        if (points > -1) grouped[key].anyCorrect = true;
+      });
+      return Object.values(grouped).sort((a, b) => (b.anyCorrect === a.anyCorrect ? b.count - a.count : (b.anyCorrect ? 1 : -1)));
+    };
+
+    // Build expanded slides per question
+    finishedSlides = [];
+    roundQuestions
+      .slice()
+      .sort((a,b) => a.letter.localeCompare(b.letter))
+      .forEach(q => {
+        const answers = (data.all_answers || []).filter(answer => 
+          Number(answer.round) === Number(lastRound.round) && answer.letter === q.letter
+        );
+        const grouped = groupAnswers(answers);
+        if (q.question_type === 'image/png') {
+          // Base image slide
+          finishedSlides.push({ kind: 'image', letter: q.letter, img: q.question, hint: null, grouped });
+          // Hint slides (image questions: show hints if present)
+          if (q.hint1) finishedSlides.push({ kind: 'image', letter: q.letter, img: q.question, hint: 'Hint 1: ' + q.hint1, grouped });
+          if (q.hint2) finishedSlides.push({ kind: 'image', letter: q.letter, img: q.question, hint: 'Hint 2: ' + q.hint2, grouped });
+        } else {
+          // Text question: single slide, no hints in finished view
+          finishedSlides.push({ kind: 'text', letter: q.letter, text: `${q.letter}. ${q.question}`, grouped });
+        }
+      });
     
     finishedRoundMode = true;
-    idx = 0; // Start at first question
+    if (!finishedSlides.length) { showError('No slides to display.'); return; }
+    idx = 0; // Start at first slide
     renderFinishedRoundSlide();
   }
 
@@ -413,95 +447,79 @@
    * Render a single finished round question slide with its results
    */
   function renderFinishedRoundSlide() {
-    if (!presentRoot || !finishedRoundMode || !finishedQuestions.length) return;
+    if (!presentRoot || !finishedRoundMode || !finishedSlides.length) return;
     
-    const currentQ = finishedQuestions[idx];
-    if (!currentQ) return;
+    const slide = finishedSlides[idx];
+    if (!slide) return;
     
     presentRoot.replaceChildren();
     
-    const panel = document.createElement('div');
-    panel.className = 'panel';
-    panel.style.cssText = 'background: var(--card); border: 1px solid #1f2937; border-radius: .8rem; width: 100%; height: 100%; display: grid; grid-template-rows: auto 1fr; padding: 2rem;';
-    
-    // Question header
-    const header = document.createElement('div');
-    header.style.cssText = 'font-size: clamp(28px, min(10cqh, 10cqw), 96px); font-weight: 800; margin-bottom: 1rem; color: var(--text);';
-    header.textContent = `${currentQ.letter}. ${currentQ.question}`;
-    panel.appendChild(header);
-    
-    // Answers container
-    const answersContainer = document.createElement('div');
-    answersContainer.style.cssText = 'overflow-y: auto; display: grid; gap: 1rem; align-content: start;';
-    
-    // Group answers by text and score
-    const answers = currentQ.answers || [];
-    const groupedAnswers = {};
-    answers.forEach(answer => {
-      const key = `${answer.answered}_${answer.points}`;
-      if (!groupedAnswers[key]) {
-        groupedAnswers[key] = {
-          text: answer.answered,
-          points: Number(answer.points),
-          value: Number(answer.value),
-          count: 0,
-          teams: []
-        };
+    if (slide.kind === 'image') {
+      const panel = document.createElement('div');
+      panel.className = 'panel fin-img-panel';
+      const wrap = document.createElement('div');
+      wrap.className = 'fin-image-wrap';
+      const img = document.createElement('img');
+      img.alt = 'Question ' + slide.letter;
+      img.src = 'data:image/png;base64,' + slide.img;
+      wrap.appendChild(img);
+
+      const overlay = document.createElement('div');
+      overlay.className = 'fin-overlay';
+      const box = document.createElement('div');
+      box.className = 'fin-overlay-box';
+      if (slide.hint) {
+        const hint = document.createElement('div');
+        hint.className = 'fin-hint';
+        hint.textContent = slide.hint;
+        box.appendChild(hint);
       }
-      groupedAnswers[key].count++;
-      groupedAnswers[key].teams.push(answer.name || answer.team_id);
-    });
-    
-    // Sort by score (highest first)
-    const sortedAnswers = Object.values(groupedAnswers).sort((a, b) => b.points - a.points);
-    
-    // Render grouped answers
-    sortedAnswers.forEach(group => {
-      const answerDiv = document.createElement('div');
-      answerDiv.style.cssText = 'padding: 1.5rem; border-radius: 0.8rem; display: flex; justify-content: space-between; align-items: center; min-height: 4rem;';
-      
-      // Color coding based on score
-      const scoreRatio = group.value > 0 ? group.points / group.value : 0;
-      if (scoreRatio >= 1) {
-        answerDiv.style.background = '#22c55e'; // Green - full points
-        answerDiv.style.color = '#052e13';
-      } else if (scoreRatio >= 0.5) {
-        answerDiv.style.background = '#f59e0b'; // Orange - half points
-        answerDiv.style.color = '#451a03';
-      } else if (scoreRatio > 0) {
-        answerDiv.style.background = '#ef4444'; // Red - quarter points
-        answerDiv.style.color = '#fef2f2';
-      } else {
-        answerDiv.style.background = '#6b7280'; // Gray - wrong
-        answerDiv.style.color = '#f9fafb';
-      }
-      
-      const answerText = document.createElement('div');
-      answerText.style.cssText = 'font-size: clamp(18px, min(8cqh, 7cqw), 64px); font-weight: 600;';
-      answerText.textContent = group.count > 1 ? `${group.count} × ${group.text}` : group.text;
-      
-      const teamsText = document.createElement('div');
-      teamsText.style.cssText = 'font-size: clamp(14px, min(6cqh, 5cqw), 48px); opacity: 0.8; text-align: right; max-width: 40%;';
-      teamsText.textContent = group.teams.join(', ');
-      
-      answerDiv.appendChild(answerText);
-      answerDiv.appendChild(teamsText);
-      answersContainer.appendChild(answerDiv);
-    });
-    
-    panel.appendChild(answersContainer);
-    presentRoot.appendChild(panel);
+      const answersContainer = document.createElement('div');
+      answersContainer.className = 'fin-answers';
+      slide.grouped.forEach(group => {
+        const answerDiv = document.createElement('div');
+        answerDiv.className = 'fin-answer ' + (group.anyCorrect ? 'correct' : 'incorrect');
+        const answerText = document.createElement('div');
+        answerText.className = 'fin-answer-text';
+        answerText.textContent = group.count > 1 ? `${group.count} × ${group.text}` : group.text;
+        answerDiv.appendChild(answerText);
+        answersContainer.appendChild(answerDiv);
+      });
+      box.appendChild(answersContainer);
+      overlay.appendChild(box);
+      wrap.appendChild(overlay);
+      panel.appendChild(wrap);
+      presentRoot.appendChild(panel);
+    } else {
+      const panel = document.createElement('div');
+      panel.className = 'panel fin-panel';
+      const header = document.createElement('div');
+      header.className = 'fin-header';
+      header.textContent = slide.text || (slide.letter || '');
+      panel.appendChild(header);
+      const answersContainer = document.createElement('div');
+      answersContainer.className = 'fin-answers';
+      slide.grouped.forEach(group => {
+        const answerDiv = document.createElement('div');
+        answerDiv.className = 'fin-answer ' + (group.anyCorrect ? 'correct' : 'incorrect');
+        const answerText = document.createElement('div');
+        answerText.className = 'fin-answer-text';
+        answerText.textContent = group.count > 1 ? `${group.count} × ${group.text}` : group.text;
+        answerDiv.appendChild(answerText);
+        answersContainer.appendChild(answerDiv);
+      });
+      panel.appendChild(answersContainer);
+      presentRoot.appendChild(panel);
+    }
   }
 
   async function fetchStatus() {
     try {
       if (!getTeam()) { ensureTeamPrompt(); return; }
       const resp = await fetch(API(CMDS.STATUS));
-      
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       }
-      
       const data = await resp.json();
       lastError = null; // Clear any previous errors
       
@@ -555,8 +573,8 @@
   // Navigation: Right/Space/Click -> next, Left -> prev. After last, switch to grid mode.
   function next() {
     if (finishedRoundMode) {
-      // In finished round mode, navigate through questions
-      if (idx < finishedQuestions.length - 1) {
+      // In finished round mode, navigate through slides
+      if (idx < finishedSlides.length - 1) {
         idx++;
         renderFinishedRoundSlide();
       }
@@ -574,7 +592,7 @@
   }
   function prev() {
     if (finishedRoundMode) {
-      // In finished round mode, navigate through questions
+      // In finished round mode, navigate through slides
       if (idx > 0) {
         idx--;
         renderFinishedRoundSlide();

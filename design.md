@@ -20,6 +20,7 @@ Furthermore, the application will be accessing Postgresql database as the user q
   * team_id varchar 8 PK, FK to Teams
   * round integer PK, FK to Rounds
   * score integer not null default 0
+  * round_score integer not null default 0
 * questions
   * round integer not null PK, FK to rounds
   * letter character not null PK
@@ -52,7 +53,7 @@ If the team exists, the server will return base HTML of the application, with li
 The server supports three “user” commands; both are only valid when accompanied by the correct team code. These commands are:
 
 ## Status
-This is a simple GET request. Will return the list of actions for the given team in a JSON, pretty much straightforward select  * from actions where team_id = ? and list of points earned by the other teams per round and in previous rounds, so that the client can display the current state of the game. If there is active round (any row in table Rounds has active = 1), the server will include also questions text from table Questions. If it is already more than length (column in table Rounds) seconds from the start of the round (column started in table Rounds), the server will also send values in column hint1 in table Questions. If more than two times length seconds have passed from the start of the round, column hint2 will be included as well.
+This is a simple GET request. Will return the list of actions for the given team in a JSON, pretty much straightforward select  * from actions where team_id = ? and list of points earned by the other teams per round and in previous rounds, so that the client can display the current state of the game. If there is active round (any row in table Rounds has active = 1), the server will include also questions text from table Questions. If it is already more than length (column in table Rounds) seconds from the start of the round (column started in table Rounds), the server will also send values in column hint1 in table Questions. If more than 1.5 times length seconds have passed from the start of the round, column hint2 will be included as well.
 
 ## Guess
 This is a POST request with the following parameters: team code and question letter. The answer itself is in the body of the request. It returns the number of points scored, if the number is negative, it means that the answer is wrong.
@@ -74,24 +75,23 @@ Delete all rows in Teams_per_round and Actions, set active in all rounds to 0, s
 ## Rules for guessing
 Perform the following checks:
 
-1. Check if the team is not under cooldown, see rules for cooldowns below. If yes, return 0.
-1. Check if the team hasn’t already answered this question successfully. It is not possible to answer the same questions multiple times. If yes, return 0.
 1. Check if there is an active round, i.e. table Round has one row with column active set to true
 
 Now we can start processing the answer:
 
-## Check for match, start cooldown if no match
+## Check for match
 The answer provided by the team is converted to lowercase and stripped of diacritical marks (normalized to NFD and filtered for all non-ascii characters) and then regex match is performed with answer in table Questions as regex expression. 
 
-If there is no match, update actions table with this wrong attempt and set points to 0
+If there is no match, update actions table with this wrong attempt and set points to -1
 
 If there is a match, the team will be scored, based on the following rules:
 
 ## Rules for scoring
-* Base score is column value in table round
+* Base score is 4
 * Determine the phase of the round. Check columns length and started in table Rounds.
-* If we are within this interval (i.e. now() < started + length  * interval ‘1 second’, then use base score
-* For every complete elapsed interval of length seconds, divide the base score by 2 (so e.g. if  started + 2  * length  * interval ‘1 second’ < now() < started + 3  * length  * interval ‘1 second’, divide by 4
+* If we are within this interval (i.e. now() < started + length  * interval ‘1 second’), then use base score
+* If we are after this interval, but within 1.5 * length seconds, divide base score by 2
++ If we are even later than this (i.e now() > started + 1.5 * length * interval '1 second') then divide base score by 4 
 
 Finally update actions table and return 0. The teams do not know if the guess was successful or not.
 
@@ -104,14 +104,14 @@ When admin team sets active column of table Rounds to 2, that round will be scor
   * If the tie persists, the order is broken by the second last guess and so on.
   * If the tie persists, the order is broken randomly
 * The teams in first half (rounded up) will be awarded points by this formula:
-  * The column value in table Rounds plus
-  * Their score in this round divided by the maximum number of points that could be scored (i.e. number of questions times value column in Rounds), divided by ten.
+  * The column value in table Rounds plus * 100
+  * Number of teams / 2 - team rank, i.e. the first team will getn (n_teams / 2 - 1) points
 
 Insert new row for each team into the teams_per_round table with the final score for this round.
 
 Example:
 
-The column value in Rounds is 4, there were 5 questions. Four teams (A, B, C, D) scored 12, 10, 10 and 8 points. Team C has had last successful guess 150 seconds after the start of the round, while team B did at 180 seconds after the start of the round. The final order is therefore A, C, B, D. So in the end, A score 4.06 (= 4 + 12 / 20 / 10) and team C scores 4.05 (= 4 + 10 / 20 / 10) points. Teams B and D score 0.
+The column value in Rounds is 4, there were 5 questions. Four teams (A, B, C, D) scored 12, 10, 10 and 8 points. Team C has had last successful guess 150 seconds after the start of the round, while team B did at 180 seconds after the start of the round. The final order is therefore A, C, B, D. So in the end, A score 401 (= 4 * 100 + 4 / 2 - 1) and team C scores 400 (= 4 * 100 + 4 / 2 - 2) points. Teams B and D score 0.
 
 # Client
 The client has four main areas that can be switched between using tabs at the top of the screen:
