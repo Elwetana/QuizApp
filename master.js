@@ -2,7 +2,7 @@
   /**
    * Constants and lightweight enums
    */
-  const POLL_MS = 60000;
+  const POLL_MS = 360000;
   const TRANSITION_BUFFER_MS = 50;
   const CLOCK_TICK_MS = 1000;
   const CMDS = /** @type {const} */ ({ STATUS: 'status' });
@@ -229,6 +229,11 @@
       img.alt = 'Question ' + q.letter;
       img.src = 'data:image/png;base64,' + q.question;
       body.appendChild(img);
+      // In presentation mode, overlay the letter on top of the image to maximize image area
+      if (!isGrid) {
+        wrap.classList.add('overlay-letter');
+        title.classList.add('image-overlay');
+      }
     } else {
       const text = document.createElement('div');
       text.className = 'text';
@@ -437,6 +442,18 @@
         }
       });
     
+    // Append round results slide (team vs round_score) from overall_totals
+    try {
+      const totals = Array.isArray(data.overall_totals) ? data.overall_totals : [];
+      const rows = totals
+        .filter(r => Number(r.round) === Number(lastRound.round))
+        .map(r => ({ team: String(r.team_id || ''), round_score: Number(r.round_score || 0) }))
+        .sort((a, b) => b.round_score - a.round_score);
+      if (rows.length) {
+        finishedSlides.push({ kind: 'results', round: Number(lastRound.round), rows });
+      }
+    } catch(_) { /* ignore */ }
+
     finishedRoundMode = true;
     if (!finishedSlides.length) { showError('No slides to display.'); return; }
     idx = 0; // Start at first slide
@@ -459,9 +476,13 @@
       panel.className = 'panel fin-img-panel';
       const wrap = document.createElement('div');
       wrap.className = 'fin-image-wrap';
+      const letterEl = document.createElement('div');
+      letterEl.className = 'fin-letter';
+      letterEl.textContent = slide.letter + '.';
       const img = document.createElement('img');
       img.alt = 'Question ' + slide.letter;
       img.src = 'data:image/png;base64,' + slide.img;
+      wrap.appendChild(letterEl);
       wrap.appendChild(img);
 
       const overlay = document.createElement('div');
@@ -489,6 +510,37 @@
       overlay.appendChild(box);
       wrap.appendChild(overlay);
       panel.appendChild(wrap);
+      presentRoot.appendChild(panel);
+    } else if (slide.kind === 'results') {
+      const panel = document.createElement('div');
+      panel.className = 'panel fin-panel';
+      const header = document.createElement('div');
+      header.className = 'fin-header';
+      header.textContent = `Round ${slide.round} results`;
+      panel.appendChild(header);
+      const box = document.createElement('div');
+      box.className = 'fin-results';
+      const perCol = 10;
+      for (let i = 0; i < slide.rows.length; i += perCol) {
+        const chunk = slide.rows.slice(i, i + perCol);
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const trh = document.createElement('tr');
+        const th1 = document.createElement('th'); th1.textContent = 'Team'; trh.appendChild(th1);
+        const th2 = document.createElement('th'); th2.textContent = 'Round score'; trh.appendChild(th2);
+        thead.appendChild(trh);
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        chunk.forEach(r => {
+          const tr = document.createElement('tr');
+          const tdTeam = document.createElement('td'); tdTeam.textContent = r.team; tr.appendChild(tdTeam);
+          const tdScore = document.createElement('td'); tdScore.textContent = String(r.round_score); tdScore.className = 'score'; tr.appendChild(tdScore);
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        box.appendChild(table);
+      }
+      panel.appendChild(box);
       presentRoot.appendChild(panel);
     } else {
       const panel = document.createElement('div');
