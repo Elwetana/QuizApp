@@ -93,16 +93,16 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 /* Finished round (results) view */
 .fin-panel { background: var(--card); border: 1px solid #1f2937; border-radius: .8rem; width: 100%; height: 100%; display: grid; grid-template-rows: auto 1fr; padding: 2rem; }
 .fin-header { font-size: clamp(28px, min(10cqh, 10cqw), 96px); font-weight: 800; margin-bottom: 1rem; color: var(--text); }
-.fin-answers { overflow-y: auto; display: grid; gap: .75rem; align-content: start; }
-.fin-answer { padding: 1rem; border-radius: 0.8rem; display: flex; justify-content: space-between; align-items: center; min-height: 3rem; }
+.fin-answers { overflow-y: auto; display: grid; gap: .75rem; align-content: start; justify-items: end; }
+.fin-answer { padding: 1rem; border-radius: 0.8rem; display: flex; justify-content: flex-end; align-items: center; min-height: 3rem; width: fit-content(100%); max-width: 100%; }
 .fin-answer.correct { background: #22c55e; color: #052e13; }
 .fin-answer.incorrect { background: #6b7280; color: #f9fafb; }
-.fin-answer-text { font-size: clamp(16px, min(6cqh, 5cqw), 48px); font-weight: 600; }
+.fin-answer-text { font-size: clamp(16px, min(6cqh, 5cqw), 48px); font-weight: 600; text-align: right; }
 
 /* Finished round image slides with overlay */
 .fin-img-panel { background: var(--card); border: 1px solid #1f2937; border-radius: .8rem; width: 100%; height: 100%; position: relative; overflow: hidden; }
 .fin-image-wrap { position: absolute; inset: 0; }
 .fin-image-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.fin-overlay { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; padding: 1rem; }
-.fin-overlay-box { pointer-events: auto; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15); border-radius: .8rem; padding: .75rem; width: min(95%, 1100px); max-height: 60%; overflow: auto; }
+.fin-overlay { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: flex-end; pointer-events: none; padding: 1rem; }
+.fin-overlay-box { pointer-events: auto; background: transparent; border: none; border-radius: .8rem; padding: 0; width: min(90%, 900px); max-height: 60%; overflow: auto; }
 .fin-hint { font-size: clamp(14px, min(6cqh, 5cqw), 40px); font-weight: 700; color: var(--text); margin-bottom: .5rem; text-align: center; }
