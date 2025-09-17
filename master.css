@@ -1,9 +1,20 @@
 :root {
   --square-gap: 12px;
+  --bg: #0f172a;      /* slate-900 */
+  --card: #111827;    /* gray-900 */
+  --muted: #94a3b8;   /* slate-400 */
+  --text: #f8fafc;    /* slate-50 */
+  --accent: #22c55e;  /* green-500 */
+  --accent-2: #38bdf8;/* sky-400 */
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); height: 100%; }
-body { display: flex; justify-content: center; align-items: flex-start; }
+body { 
+    font-family: "Jannon Sans Book", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial;
+    display: flex; 
+    justify-content: center; 
+    align-items: flex-start; 
+}
 
 /* Fixed 16:9 stage centered horizontally, top-aligned vertically */
 #stage { width: min(100vw, calc(100vh * (16 / 9))); aspect-ratio: 16 / 9; }
@@ -17,7 +28,7 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 #present .panel > .qwrap { grid-row: 1 / -1; }
 #present .qwrap .body { min-height: 0; }
 #present .qwrap .title { font-size: clamp(28px, min(10cqh, 10cqw), 96px); font-weight: 800; margin-bottom: .5rem; }
-#present .qwrap .body { overflow: hidden; display: grid; align-content: center; justify-items: center; container-type: size; }
+#present .qwrap .body { overflow: hidden; display: grid; align-content: start; justify-items: center; container-type: size; }
 /* Slightly smaller responsive text to ensure fit */
 #present .qwrap .text { width: 100%; text-align: left; font-size: clamp(20px, min(12cqh, 10cqw), 96px); line-height: 1.15; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
 /* In presentation mode, keep hints same size as question text */
@@ -70,8 +81,8 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 .qwrap .title { font-size: 1.6rem; font-weight: 700; }
 .qwrap .body { overflow: hidden; container-type: size; }
 .qwrap .body img { width: 100%; height: 100%; object-fit: contain; border-radius: .4rem; border: 1px solid #1f2937; }
-#present .qwrap .body img { width: auto; height: auto; max-width: 90cqw; max-height: 90cqh; min-height: 90cqh; }
-#present .qwrap .body { min-height: 90cqh; }
+#present .qwrap .body img { width: auto; height: auto; min-height: 99cqh; }
+#present .qwrap .body { min-height: 99cqh; }
 #present .qwrap.overlay-letter { position: relative; container-type: size; }
 #present .qwrap.overlay-letter .title.image-overlay { position: absolute; top: .5rem; left: .75rem; z-index: 1; background: rgba(0,0,0,0.4); padding: .2rem .5rem; border-radius: .4rem; font-size: clamp(18px, min(9cqh, 8cqw), 80px); color: var(--text); }
 .qwrap .body .text { font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; }
@@ -85,6 +96,9 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 #grid .qwrap.has-promote .hint:not(.promote) { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
 
 /* No media rule needed; width is based on stage height via cqh */
+
+/* Utility classes */
+.hidden { display: none !important; }
 
 /* Overlay for team entry */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; z-index: 9999; }
@@ -113,7 +127,7 @@ body { display: flex; justify-content: center; align-items: flex-start; }
 .fin-hint { font-size: clamp(14px, min(6cqh, 5cqw), 40px); font-weight: 700; color: var(--text); margin-bottom: .5rem; text-align: center; }
 
 /* Finished round results table */
-.fin-results { display: grid; place-items: center; height: 100%; grid-auto-flow: column; gap: 2rem; }
+.fin-results { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; gap: 2rem; }
 .fin-results table { width: auto; max-width: 100%; border-collapse: collapse; table-layout: auto; font-size: clamp(16px, min(6cqh, 5cqw), 48px); }
 .fin-results th, .fin-results td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
 .fin-results td.score { text-align: right; font-variant-numeric: tabular-nums; }

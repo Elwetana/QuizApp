@@ -454,6 +454,23 @@
       }
     } catch(_) { /* ignore */ }
 
+    // Append overall leaderboard slide
+    try {
+      const rows = data && Array.isArray(data.overall_totals) ? data.overall_totals : [];
+      const totals = new Map();
+      for (const r of rows) {
+        const id = r.team_id;
+        const sc = Number(r.score) || 0;
+        totals.set(id, (totals.get(id) || 0) + sc);
+      }
+      const leaderboard = Array.from(totals.entries())
+        .map(([team_id, total]) => ({ team_id, total }))
+        .sort((a, b) => b.total - a.total);
+      if (leaderboard.length) {
+        finishedSlides.push({ kind: 'leaderboard', leaderboard });
+      }
+    } catch(_) { /* ignore */ }
+
     finishedRoundMode = true;
     if (!finishedSlides.length) { showError('No slides to display.'); return; }
     idx = 0; // Start at first slide
@@ -472,29 +489,35 @@
     presentRoot.replaceChildren();
     
     if (slide.kind === 'image') {
+      // Use the same question rendering pathway as active rounds for consistency
       const panel = document.createElement('div');
-      panel.className = 'panel fin-img-panel';
-      const wrap = document.createElement('div');
-      wrap.className = 'fin-image-wrap';
-      const letterEl = document.createElement('div');
-      letterEl.className = 'fin-letter';
-      letterEl.textContent = slide.letter + '.';
-      const img = document.createElement('img');
-      img.alt = 'Question ' + slide.letter;
-      img.src = 'data:image/png;base64,' + slide.img;
-      wrap.appendChild(letterEl);
-      wrap.appendChild(img);
-
+      panel.className = 'panel';
+      panel.style.position = 'relative'; // Make panel a positioned parent for the overlay
+      
+      // Create a question object that matches the expected format
+      const questionObj = {
+        letter: slide.letter,
+        question: slide.img,
+        question_type: 'image/png'
+      };
+      
+      const wrap = createQuestionElement(questionObj, false); // Use same function as active rounds
+      panel.appendChild(wrap);
+      
+      // Add hint to the question body if present
+      if (slide.hint) {
+        const hintDiv = document.createElement('div');
+        hintDiv.className = 'hint';
+        hintDiv.textContent = slide.hint;
+        wrap.querySelector('.body').appendChild(hintDiv);
+      }
+      
+      // Create overlay for answers on top of the image
       const overlay = document.createElement('div');
       overlay.className = 'fin-overlay';
       const box = document.createElement('div');
       box.className = 'fin-overlay-box';
-      if (slide.hint) {
-        const hint = document.createElement('div');
-        hint.className = 'fin-hint';
-        hint.textContent = slide.hint;
-        box.appendChild(hint);
-      }
+      
       const answersContainer = document.createElement('div');
       answersContainer.className = 'fin-answers';
       slide.grouped.forEach(group => {
@@ -508,12 +531,13 @@
       });
       box.appendChild(answersContainer);
       overlay.appendChild(box);
-      wrap.appendChild(overlay);
-      panel.appendChild(wrap);
+      
+      // Add overlay to the panel (not to the wrap, so it covers the entire panel)
+      panel.appendChild(overlay);
       presentRoot.appendChild(panel);
     } else if (slide.kind === 'results') {
       const panel = document.createElement('div');
-      panel.className = 'panel fin-panel';
+      panel.className = 'panel';
       const header = document.createElement('div');
       header.className = 'fin-header';
       header.textContent = `Round ${slide.round} results`;
@@ -542,13 +566,22 @@
       }
       panel.appendChild(box);
       presentRoot.appendChild(panel);
-    } else {
+    } else if (slide.kind === 'text') {
+      // Use the same question rendering pathway as active rounds for consistency
       const panel = document.createElement('div');
-      panel.className = 'panel fin-panel';
-      const header = document.createElement('div');
-      header.className = 'fin-header';
-      header.textContent = slide.text || (slide.letter || '');
-      panel.appendChild(header);
+      panel.className = 'panel';
+      
+      // Create a question object that matches the expected format
+      const questionObj = {
+        letter: slide.letter,
+        question: slide.text ? slide.text.replace(/^[A-E]\.\s*/, '') : '', // Remove letter prefix if present
+        question_type: 'text' // Force text type for finished round display
+      };
+      
+      const wrap = createQuestionElement(questionObj, false); // Use same function as active rounds
+      panel.appendChild(wrap);
+      
+      // Add answers below the question using the same structure
       const answersContainer = document.createElement('div');
       answersContainer.className = 'fin-answers';
       slide.grouped.forEach(group => {
@@ -561,6 +594,49 @@
         answersContainer.appendChild(answerDiv);
       });
       panel.appendChild(answersContainer);
+      presentRoot.appendChild(panel);
+    } else if (slide.kind === 'leaderboard') {
+      const panel = document.createElement('div');
+      panel.className = 'panel';
+      
+      const header = document.createElement('div');
+      header.className = 'fin-header';
+      header.textContent = 'Overall Leaderboard';
+      panel.appendChild(header);
+      
+      const boardContainer = document.createElement('div');
+      boardContainer.className = 'fin-results';
+      
+      if (!slide.leaderboard.length) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.textContent = 'No scores yet.';
+        emptyDiv.style.textAlign = 'center';
+        emptyDiv.style.fontSize = 'clamp(16px, min(6cqh, 5cqw), 48px)';
+        boardContainer.appendChild(emptyDiv);
+      } else {
+        const perCol = 10;
+        for (let i = 0; i < slide.leaderboard.length; i += perCol) {
+          const chunk = slide.leaderboard.slice(i, i + perCol);
+          const table = document.createElement('table');
+          const thead = document.createElement('thead');
+          const trh = document.createElement('tr');
+          const th1 = document.createElement('th'); th1.textContent = 'Team'; trh.appendChild(th1);
+          const th2 = document.createElement('th'); th2.textContent = 'Total Score'; trh.appendChild(th2);
+          thead.appendChild(trh);
+          table.appendChild(thead);
+          const tbody = document.createElement('tbody');
+          chunk.forEach((t, index) => {
+            const tr = document.createElement('tr');
+            const tdTeam = document.createElement('td'); tdTeam.textContent = t.team_id; tr.appendChild(tdTeam);
+            const tdScore = document.createElement('td'); tdScore.textContent = String(t.total); tdScore.className = 'score'; tr.appendChild(tdScore);
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          boardContainer.appendChild(table);
+        }
+      }
+      
+      panel.appendChild(boardContainer);
       presentRoot.appendChild(panel);
     }
   }
