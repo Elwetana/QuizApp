@@ -85,7 +85,7 @@ body {
 #present .qwrap .body { min-height: 99cqh; }
 #present .qwrap.overlay-letter { position: relative; container-type: size; }
 #present .qwrap.overlay-letter .title.image-overlay { position: absolute; top: .5rem; left: .75rem; z-index: 1; background: rgba(0,0,0,0.4); padding: .2rem .5rem; border-radius: .4rem; font-size: clamp(18px, min(9cqh, 8cqw), 80px); color: var(--text); }
-.qwrap .body .text { font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; }
+.qwrap .body .text { font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; font-weight: 100;}
 .qwrap .hint { font-size: 0.75em; }
 .qwrap .hint { color: var(--muted); margin-top: .25rem; }
 
@@ -128,6 +128,7 @@ body {
 
 /* Finished round results table */
 .fin-results { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; gap: 2rem; }
-.fin-results table { width: auto; max-width: 100%; border-collapse: collapse; table-layout: auto; font-size: clamp(16px, min(6cqh, 5cqw), 48px); }
+.fin-results table { width: auto; max-width: 100%; border-collapse: collapse; table-layout: auto; font-size: clamp(16px, min(6cqh, 5cqw), 48px); font-weight: 100;}
 .fin-results th, .fin-results td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
+.fin-results th { font-weight: 400; }
 .fin-results td.score { text-align: right; font-variant-numeric: tabular-nums; }
