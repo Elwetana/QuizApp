@@ -17,6 +17,8 @@ body {
 .tab.active { display: block; }
 header { position: sticky; top: 0; background: var(--bg); padding: .75rem; border-bottom: 1px solid #1f2937; }
 h1 { font-size: 1.25rem; margin: 0 0 .5rem 0; }
+h1.locked { color: var(--muted); opacity: 0.7; }
+h1 small { display: inline-block; margin-left: 0.5rem; font-size: 0.8rem; color: var(--muted); }
 nav#tabs { display: flex; gap: .5rem; }
 nav#tabs button { flex: 1; padding: .6rem; border-radius: .6rem; border: 1px solid #1f2937; background: #0b1220; color: var(--text); }
 nav#tabs button.active { outline: 2px solid var(--accent-2); }

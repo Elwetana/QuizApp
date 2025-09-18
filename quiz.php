@@ -135,7 +135,7 @@ EOL,
 EOL,
         FetchType::RenameTeam->value => /** @lang PostgreSQL */ <<<EOL
     with is_active as (
-        select max(case when active = 2 then 0 else active end) as a
+        select max(active) as a
         from rounds
     ),
     is_dup as (

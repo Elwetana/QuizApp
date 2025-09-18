@@ -110,6 +110,14 @@
     if (lastStatus) renderRoundProgress(lastStatus);
   }
 
+  function canEditTeamName(data) {
+    const rounds = Array.isArray(data.all_rounds) ? data.all_rounds : [];
+    // If no rounds are defined, allow editing (initial setup state)
+    if (rounds.length === 0) return true;
+    // NEW BEHAVIOR: Only allow editing before game starts (all rounds have active = 0)
+    return rounds.every(r => Number(r.active) === 0);
+  }
+
   function renderRoundProgressFilter(data) {
     const row = document.querySelector(SELECTORS.progressFilter);
     if (!row) return;
@@ -333,7 +341,7 @@
     }
 
     // If answering a selected letter, show only that question with inline controls (players only)
-    if (!isAdmin && selectedLetter) {
+    if (!isAdmin && data.current_round && selectedLetter) {
       const q = qs.find((x) => x.letter === selectedLetter);
       if (!q) {
         selectedLetter = null;
@@ -416,7 +424,7 @@
       const mine = latest[q.letter];
       if (mine) parts.push(`<div><small>You answered:</small> ${mine}</div>`);
       card.appendChild(document.createRange().createContextualFragment(parts.join('')));
-      if (!isAdmin) {
+      if (!isAdmin && data.current_round) {
         const act = document.createElement('div');
         act.className = 'row';
         const ansBtn = document.createElement('button');
@@ -545,7 +553,21 @@
 
       // Team name and caption
       const teamName = (data.team?.name || '').trim();
-      if (!editingCaption && cap) cap.textContent = teamName || TEAM;
+      if (!editingCaption && cap) {
+        cap.textContent = teamName || TEAM;
+        
+        // Update caption styling based on editing availability
+        const editingAllowed = canEditTeamName(data);
+        if (editingAllowed) {
+          cap.style.cursor = 'pointer';
+          cap.title = 'Click to edit team name';
+          cap.classList.remove('locked');
+        } else {
+          cap.style.cursor = 'default';
+          cap.title = 'Team name cannot be changed after game starts';
+          cap.classList.add('locked');
+        }
+      }
 
       lastStatus = data;
       // Batch DOM updates in a frame to reduce layout thrash
@@ -584,6 +606,12 @@
     const answer = ansEl ? ansEl.value.trim() : '';
     if (!question) { if (resEl) resEl.textContent = 'Select a question letter first.'; return; }
     if (!answer) { if (resEl) resEl.textContent = 'Choose a question and enter an answer.'; return; }
+    
+    // Check if there's an active round
+    if (!lastStatus || !lastStatus.current_round) {
+      if (resEl) resEl.textContent = 'No active round.';
+      return;
+    }
     if (resEl) resEl.textContent = 'Submitting...';
     try {
       const resp = await fetch(API(CMDS.GUESS, { letter: question }), {
@@ -718,18 +746,76 @@
   if (cap) {
     cap.addEventListener('click', () => {
       if (editingCaption) return;
+      
+      // Check if editing is allowed - only before game starts (all rounds have active = 0)
+      if (lastStatus && !canEditTeamName(lastStatus)) {
+        return; // Game has started, don't allow editing
+      }
+      
       editingCaption = true;
       const current = cap.textContent || '';
       cap.innerHTML = '';
       const input = document.createElement('input');
       input.type = 'text';
       input.value = current === TEAM ? '' : current;
-      input.maxLength = 32;
+      input.maxLength = 16; // Server truncates to 16 characters
       input.style.width = '70%';
       input.style.marginRight = '.5rem';
+      
+      // Add character counter
+      const charCounter = document.createElement('small');
+      charCounter.style.color = 'var(--muted)';
+      charCounter.style.fontSize = '0.8rem';
+      charCounter.style.marginLeft = '0.5rem';
+      
+      const updateCharCounter = () => {
+        const length = input.value.length;
+        charCounter.textContent = `${length}/16`;
+        charCounter.style.color = length > 16 ? '#ef4444' : 'var(--muted)';
+      };
+      
+      input.addEventListener('input', updateCharCounter);
+      updateCharCounter();
       const btn = document.createElement('button');
       btn.textContent = 'Submit';
+      
+      // Add validation function
+      const validateTeamName = (name) => {
+        const trimmed = (name || '').trim();
+        if (!trimmed) {
+          return { valid: false, message: 'Team name cannot be empty' };
+        }
+        if (trimmed.length > 16) {
+          return { valid: false, message: 'Team name must be 16 characters or less' };
+        }
+        
+        // Check for duplicates using overall_totals (available to all teams)
+        if (lastStatus && Array.isArray(lastStatus.overall_totals)) {
+          const existingNames = lastStatus.overall_totals
+            .map(t => (t.team_id || '').trim().toLowerCase())
+            .filter(name => name && name !== TEAM.toLowerCase()); // Exclude current team
+          
+          if (existingNames.includes(trimmed.toLowerCase())) {
+            return { valid: false, message: 'Team name already exists' };
+          }
+        }
+        
+        return { valid: true };
+      };
+      
       btn.addEventListener('click', async () => {
+        const validation = validateTeamName(input.value);
+        if (!validation.valid) {
+          const old = btn.textContent;
+          btn.textContent = validation.message;
+          btn.style.background = '#ef4444';
+          setTimeout(() => {
+            btn.textContent = old;
+            btn.style.background = '';
+          }, 2000);
+          return;
+        }
+        
         btn.disabled = true;
         const ok = await submitCaptionRename(input.value);
         btn.disabled = false;
@@ -748,6 +834,7 @@
         if (e.key === 'Escape') { editingCaption = false; cap.textContent = current; }
       });
       cap.appendChild(input);
+      cap.appendChild(charCounter);
       cap.appendChild(btn);
       input.focus();
       input.selectionStart = input.value.length;
