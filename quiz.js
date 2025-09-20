@@ -65,6 +65,78 @@
     return false;
   };
 
+  // Countdown functions
+  function fmtClock(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function updateServerSkew(data) {
+    try {
+      if (!data) return;
+      const src = (data.team && data.team.now != null) ? data.team.now : null;
+      if (src == null) return;
+      let t = null;
+      if (typeof src === 'number') {
+        t = src < 1e12 ? src * 1000 : src;
+      } else {
+        const d = new Date(src);
+        if (!isNaN(d.getTime())) t = d.getTime();
+      }
+      if (t != null) serverSkewMs = t - Date.now();
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function computeNextTransition(roundData) {
+    if (!roundData || !roundData.started || !roundData.length) return null;
+    const start = new Date(roundData.started).getTime();
+    const L = Number(roundData.length) * 1000;
+    const now = Date.now() + serverSkewMs;
+    const t1 = start + L;           // Hint 1
+    const t2 = start + L + L / 2;   // Hint 2
+    const t3 = start + 2 * L;       // End
+    if (now < t1) return t1;
+    if (now < t2) return t2;
+    if (now < t3) return t3;
+    return null;
+  }
+
+  function secondsUntilNextTransition(roundData) {
+    const nextTransition = computeNextTransition(roundData);
+    if (!nextTransition) return 0;
+    return Math.max(0, (nextTransition - (Date.now() + serverSkewMs)) / 1000);
+  }
+
+  function updateCountdown(data) {
+    const countdownEl = document.getElementById('countdown');
+    if (!countdownEl) return;
+
+    const hasActiveRound = data.current_round && Number(data.current_round.active) === 1;
+    
+    if (hasActiveRound) {
+      const seconds = secondsUntilNextTransition(data.current_round);
+      countdownEl.textContent = fmtClock(seconds);
+      countdownEl.classList.remove('hidden');
+    } else {
+      countdownEl.classList.add('hidden');
+    }
+  }
+
+  function startCountdownTimer() {
+    if (countdownTimer) {
+      clearInterval(countdownTimer);
+    }
+    countdownTimer = setInterval(() => {
+      if (lastStatus) {
+        updateCountdown(lastStatus);
+      }
+    }, 1000);
+  }
+
   // Initial caption fallback to team code
   const cap = document.getElementById('caption');
   if (cap) cap.textContent = TEAM || 'Pub Quiz';
@@ -92,6 +164,9 @@
   let answerDraft = '';
   let answerDraftLetter = null;
   let lastStatus = null;
+  // Countdown state
+  let countdownTimer = null;
+  let serverSkewMs = 0;
 
   function setSelectedRound(r) {
     selectedRound = Number(r);
@@ -324,16 +399,34 @@
     const activeId = document.activeElement && document.activeElement.classList.contains('answer-input') ? document.activeElement.id : '';
     list.replaceChildren();
     const qs = data.questions || [];
-    // Build latest answer map per letter for the current round
-    const latest = {};
-    const acts = Array.isArray(data.my_actions) ? data.my_actions : [];
-    const roundFilter = Number(currentRound || 0);
-    for (const a of acts) {
-      const L = (a.letter || '').toUpperCase();
-      const r = Number(a.round || 0);
-      if (!L) continue;
-      if (roundFilter && r !== roundFilter) continue;
-      if (!(L in latest)) latest[L] = (a.answered || '').toString(); // actions are newest-first
+    
+    // Determine if we should use team_answers (no active round) or my_actions (active round)
+    const hasActiveRound = data.current_round && Number(data.current_round.active) === 1;
+    let latest = {};
+    
+    if (hasActiveRound) {
+      // Build latest answer map per letter for the current round using my_actions
+      const acts = Array.isArray(data.my_actions) ? data.my_actions : [];
+      const roundFilter = Number(currentRound || 0);
+      for (const a of acts) {
+        const L = (a.letter || '').toUpperCase();
+        const r = Number(a.round || 0);
+        if (!L) continue;
+        if (roundFilter && r !== roundFilter) continue;
+        if (!(L in latest)) latest[L] = (a.answered || '').toString(); // actions are newest-first
+      }
+    } else {
+      // Use team_answers when no round is active
+      const teamAnswers = Array.isArray(data.team_answers) ? data.team_answers : [];
+      for (const answer of teamAnswers) {
+        const L = (answer.letter || '').toUpperCase();
+        if (!L) continue;
+        latest[L] = {
+          answered: (answer.answered || '').toString(),
+          points: Number(answer.points),
+          value: Number(answer.value)
+        };
+      }
     }
     if (!qs.length) {
       list.textContent = 'Questions will appear when a round is active.';
@@ -361,7 +454,17 @@
         if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
         // Latest personal answer under the question
         const mine = latest[q.letter];
-        if (mine) parts.push(`<div><small>You answered:</small> ${mine}</div>`);
+        if (mine) {
+          if (typeof mine === 'string') {
+            // Active round - simple string display
+            parts.push(`<div><small>You answered:</small> ${mine}</div>`);
+          } else {
+            // No active round - show with color background based on validity
+            const isValid = mine.points >= 0;
+            const answerClass = isValid ? 'team-answer correct' : 'team-answer incorrect';
+            parts.push(`<div><small>You answered:</small> <span class="${answerClass}">${mine.answered}</span></div>`);
+          }
+        }
         parts.push(`
           <label>
             <span>Answer</span>
@@ -422,7 +525,17 @@
       if (q.hint2) parts.push(`<div><small>Hint 2:</small> ${q.hint2}</div>`);
       // Latest personal answer summary line
       const mine = latest[q.letter];
-      if (mine) parts.push(`<div><small>You answered:</small> ${mine}</div>`);
+      if (mine) {
+        if (typeof mine === 'string') {
+          // Active round - simple string display
+          parts.push(`<div><small>You answered:</small> ${mine}</div>`);
+        } else {
+          // No active round - show with color background based on validity
+          const isValid = mine.points >= 0;
+          const answerClass = isValid ? 'team-answer correct' : 'team-answer incorrect';
+          parts.push(`<div><small>You answered:</small> <span class="${answerClass}">${mine.answered}</span></div>`);
+        }
+      }
       card.appendChild(document.createRange().createContextualFragment(parts.join('')));
       if (!isAdmin && data.current_round) {
         const act = document.createElement('div');
@@ -570,6 +683,8 @@
       }
 
       lastStatus = data;
+      // Update server time skew for countdown accuracy
+      updateServerSkew(data);
       // Batch DOM updates in a frame to reduce layout thrash
       requestAnimationFrame(() => {
         renderCurrentRound(data);
@@ -578,6 +693,7 @@
         renderHistory(data);
         renderRoundsOverview(data);
         renderAdminRoundButtons(data);
+        updateCountdown(data);
         if (isAdmin) {
           renderRoundProgressFilter(data);
           renderRoundProgress(data);
@@ -845,4 +961,5 @@
   if (!TEAM) { alert('Missing team code in URL.'); }
   fetchStatus();
   setInterval(fetchStatus, 60000);
+  startCountdownTimer();
 })();
