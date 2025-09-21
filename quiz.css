@@ -89,7 +89,7 @@ button.primary { background: var(--accent); color: #052e13; border-color: #14532
   color: #052e13; 
 }
 .team-answer.incorrect { 
-  background: #6b7280; 
+  background: #9a0800; 
   color: #f9fafb; 
 }
 

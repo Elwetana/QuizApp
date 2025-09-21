@@ -208,6 +208,115 @@
   }
 
   /**
+   * Get appropriate CSS class for text length
+   * @param {string} text - Text content
+   * @param {string} hint1 - Hint 1 content (for space calculation)
+   * @param {string} hint2 - Hint 2 content (for space calculation)
+   * @returns {string} CSS class name
+   */
+  function getTextSizeClass(text, hint1 = '', hint2 = '') {
+    if (!text) return '';
+    const length = text.length;
+    
+    // Calculate total hint content length to determine space pressure
+    const hint1Length = hint1 ? hint1.length : 0;
+    const hint2Length = hint2 ? hint2.length : 0;
+    const totalHintLength = hint1Length + hint2Length;
+    const hasHints = hint1Length > 0 || hint2Length > 0;
+    
+    // If no hints present, we can use larger fonts for the question
+    if (!hasHints) {
+      if (length > 768) return 'text-extremely-long';
+      if (length > 384) return 'text-very-long';
+      if (length > 192) return 'text-long';
+      return '';
+    }
+    
+    // With hints present, adjust based on hint content length
+    if (totalHintLength > 400) {
+      // Two long hints or one very long hint - very conservative
+      if (length > 256) return 'text-extremely-long';
+      if (length > 128) return 'text-very-long';
+      if (length > 64) return 'text-long';
+      return '';
+    } else if (totalHintLength > 200) {
+      // One long hint or two medium hints - conservative
+      if (length > 384) return 'text-extremely-long';
+      if (length > 192) return 'text-very-long';
+      if (length > 96) return 'text-long';
+      return '';
+    } else {
+      // Short hints - moderate sizing
+      if (length > 512) return 'text-extremely-long';
+      if (length > 256) return 'text-very-long';
+      if (length > 128) return 'text-long';
+      return '';
+    }
+  }
+
+   function renderTextQuestion(q, body, wrap, title, isGrid = false) {
+     // Regular text question
+     const text = document.createElement('div');
+     text.className = 'text ' + getTextSizeClass(q.question || '', q.hint1 || '', q.hint2 || '');
+     text.textContent = q.question || '';
+     body.appendChild(text);
+     
+     let h1 = null, h2 = null;
+     if (q.hint1) { 
+       h1 = document.createElement('div'); 
+       h1.className = 'hint ' + getTextSizeClass(q.hint1, '', ''); // Hints use their own sizing
+       h1.textContent = 'Hint 1: ' + q.hint1; 
+       body.appendChild(h1); 
+     }
+     if (q.hint2) { 
+       h2 = document.createElement('div'); 
+       h2.className = 'hint ' + getTextSizeClass(q.hint2, '', ''); // Hints use their own sizing
+       h2.textContent = 'Hint 2: ' + q.hint2; 
+       body.appendChild(h2); 
+     }
+     
+     // In grid mode, promote the latest hint
+     if (isGrid) {
+       const promote = h2 || h1;
+       if (promote) { 
+         promote.classList.add('promote'); 
+         wrap.classList.add('has-promote'); 
+       }
+     }
+   }
+
+  function renderImageQuestion(q, body, wrap, title, isGrid = false) {
+    let textQuestions = {}
+    let isImage = false;
+    let imageData = '';
+    
+    ["question", "hint1", "hint2"].forEach(qName => {
+      let qText = q[qName];
+      if (qText && qText !== 'not_found' && qText.length > 0 && qText.length <= 1000) {
+        textQuestions[qName] = qText;
+        isImage = false;
+      } else {
+        isImage = true;
+        textQuestions[qName] = '';
+        imageData = qText;
+      }
+    });
+
+    if(isImage) {
+      const img = document.createElement('img');
+      img.alt = 'Question ' + q.letter;
+      img.src = 'data:image/png;base64,' + imageData;
+      body.appendChild(img);
+      if (!isGrid) {
+        wrap.classList.add('overlay-letter');
+        title.classList.add('image-overlay');
+      }
+    } else {
+      renderTextQuestion(textQuestions, body, wrap, title, isGrid);
+    }      
+  } 
+  
+  /**
    * Common question rendering logic
    * @param {Question} q - Question object
    * @param {boolean} isGrid - Whether this is for grid mode (affects hint promotion)
@@ -225,45 +334,11 @@
     body.className = 'body';
     
     if (q.question_type === 'image/png') {
-      const img = document.createElement('img');
-      img.alt = 'Question ' + q.letter;
-      img.src = 'data:image/png;base64,' + q.question;
-      body.appendChild(img);
-      // In presentation mode, overlay the letter on top of the image to maximize image area
-      if (!isGrid) {
-        wrap.classList.add('overlay-letter');
-        title.classList.add('image-overlay');
-      }
+      renderImageQuestion(q, body, wrap, title, isGrid);
     } else {
-      const text = document.createElement('div');
-      text.className = 'text';
-      text.textContent = q.question || '';
-      body.appendChild(text);
-      
-      let h1 = null, h2 = null;
-      if (q.hint1) { 
-        h1 = document.createElement('div'); 
-        h1.className = 'hint'; 
-        h1.textContent = 'Hint 1: ' + q.hint1; 
-        body.appendChild(h1); 
-      }
-      if (q.hint2) { 
-        h2 = document.createElement('div'); 
-        h2.className = 'hint'; 
-        h2.textContent = 'Hint 2: ' + q.hint2; 
-        body.appendChild(h2); 
-      }
-      
-      // In grid mode, promote the latest hint
-      if (isGrid) {
-        const promote = h2 || h1;
-        if (promote) { 
-          promote.classList.add('promote'); 
-          wrap.classList.add('has-promote'); 
-        }
-      }
+      renderTextQuestion(q, body, wrap, title, isGrid);
     }
-    
+
     wrap.appendChild(title);
     wrap.appendChild(body);
     return wrap;
@@ -326,8 +401,6 @@
     strip.appendChild(doc);
   }
 
-  // Removed JS font fitting — handled by CSS container query units now
-
   function renderPresent() {
     if (!presentRoot) return;
     presentRoot.replaceChildren();
@@ -379,7 +452,7 @@
       const messageDiv = document.createElement('div');
       messageDiv.className = 'game-not-started';
       messageDiv.style.cssText = 'display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text); font-size: 3rem; text-align: center; font-weight: 600;';
-      messageDiv.textContent = "Game haven't started yet";
+      messageDiv.textContent = "Game hasn't started yet";
       presentRoot.appendChild(messageDiv);
     }
   }
@@ -431,11 +504,29 @@
         );
         const grouped = groupAnswers(answers);
         if (q.question_type === 'image/png') {
-          // Base image slide
-          finishedSlides.push({ kind: 'image', letter: q.letter, img: q.question, hint: null, grouped });
-          // Hint slides (image questions: show hints if present)
-          if (q.hint1) finishedSlides.push({ kind: 'image', letter: q.letter, img: q.question, hint: 'Hint 1: ' + q.hint1, grouped });
-          if (q.hint2) finishedSlides.push({ kind: 'image', letter: q.letter, img: q.question, hint: 'Hint 2: ' + q.hint2, grouped });
+          // Create separate slides for each image (question, hint1, hint2)
+          // Only create slides for fields that are actually images (base64 encoded, much longer than text)
+          
+          // Question slide (image or text)
+          if (q.question && q.question !== 'not_found' && q.question.length > 0) {
+            if (q.question.length > 1000) {
+              // Question is an image
+              finishedSlides.push({ kind: 'image', letter: q.letter, img: q.question, hint: null, grouped, slideType: 'question' });
+            } else {
+              // Question is text
+              finishedSlides.push({ kind: 'text', letter: q.letter, text: `${q.letter}. ${q.question}`, grouped });
+            }
+          }
+          
+          // Hint 1 image slide (if hint1 exists and is an image)
+          if (q.hint1 && q.hint1 !== 'not_found' && q.hint1.length > 1000) {
+            finishedSlides.push({ kind: 'image', letter: q.letter, img: q.hint1, hint: 'Hint 1', grouped, slideType: 'hint1' });
+          }
+          
+          // Hint 2 image slide (if hint2 exists and is an image)
+          if (q.hint2 && q.hint2 !== 'not_found' && q.hint2.length > 1000) {
+            finishedSlides.push({ kind: 'image', letter: q.letter, img: q.hint2, hint: 'Hint 2', grouped, slideType: 'hint2' });
+          }
         } else {
           // Text question: single slide, no hints in finished view
           finishedSlides.push({ kind: 'text', letter: q.letter, text: `${q.letter}. ${q.question}`, grouped });
@@ -504,7 +595,7 @@
       const wrap = createQuestionElement(questionObj, false); // Use same function as active rounds
       panel.appendChild(wrap);
       
-      // Add hint to the question body if present
+      // Add hint label to the question body if present
       if (slide.hint) {
         const hintDiv = document.createElement('div');
         hintDiv.className = 'hint';
@@ -695,7 +786,6 @@
   // Boot
   fetchStatus();
   setMode(MODES.PRESENT);
-  setInterval(fetchStatus, POLL_MS);
   setInterval(tickClock, CLOCK_TICK_MS);
 
   // Navigation: Right/Space/Click -> next, Left -> prev. After last, switch to grid mode.

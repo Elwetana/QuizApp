@@ -91,7 +91,7 @@ body {
 #present .qwrap .body { min-height: 99cqh; }
 #present .qwrap.overlay-letter { position: relative; container-type: size; }
 #present .qwrap.overlay-letter .title.image-overlay { position: absolute; top: .5rem; left: .75rem; z-index: 1; background: rgba(0,0,0,0.4); padding: .2rem .5rem; border-radius: .4rem; font-size: clamp(18px, min(9cqh, 8cqw), 80px); color: var(--text); }
-.qwrap .body .text { font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; font-weight: 100;}
+.qwrap .body .text { font-size: clamp(18px, min(10cqh, 8cqw), 80px); line-height: 1.2; font-weight: 100;}
 .qwrap .hint { font-size: 0.75em; }
 .qwrap .hint { color: var(--muted); margin-top: .25rem; }
 
@@ -102,6 +102,11 @@ body {
 #grid .qwrap.has-promote .hint:not(.promote) { color: var(--muted); font-size: clamp(14px, min(7cqh, 6cqw), 56px); }
 
 /* No media rule needed; width is based on stage height via cqh */
+
+/* Dynamic font sizing for long text */
+.text-long { font-size: clamp(16px, min(9cqh, 7cqw), 72px) !important; }
+.text-very-long { font-size: clamp(14px, min(8cqh, 6cqw), 56px) !important; }
+.text-extremely-long { font-size: clamp(12px, min(6cqh, 5cqw), 48px) !important; }
 
 /* Utility classes */
 .hidden { display: none !important; }
@@ -120,7 +125,7 @@ body {
 .fin-answers { overflow-y: auto; display: grid; gap: .75rem; align-content: start; justify-items: end; }
 .fin-answer { padding: 1rem; border-radius: 0.8rem; display: flex; justify-content: flex-end; align-items: center; min-height: 3rem; width: fit-content(100%); max-width: 100%; }
 .fin-answer.correct { background: #22c55e; color: #052e13; }
-.fin-answer.incorrect { background: #6b7280; color: #f9fafb; }
+.fin-answer.incorrect { background: #9a0800; color: #f9fafb; }
 .fin-answer-text { font-size: clamp(16px, min(6cqh, 5cqw), 48px); font-weight: 600; text-align: right; }
 
 /* Finished round image slides with overlay */

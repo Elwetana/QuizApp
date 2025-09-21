@@ -4,7 +4,7 @@
    * Constants and lightweight enums
    */
   const POLL_MS = 60000;
-  const CMDS = /** @type {const} */ ({ STATUS: 'status', GUESS: 'guess', RENAME: 'rename', ROUND: 'round', DEFINE: 'define', RESET: 'reset', PEOPLE: 'people' });
+  const CMDS = /** @type {const} */ ({ STATUS: 'status', GUESS: 'guess', RENAME: 'rename', ROUND: 'round', DEFINE: 'define', RESET: 'reset', PEOPLE: 'people', MAKE_TEAMS: 'make_teams' });
   const REASONS = /** @type {const} */ ({ COOLDOWN: 'cooldown_active', NO_LETTER: 'no_letter', NO_ACTIVE: 'no_active', NOT_ACCEPTED: 'not_accepted' });
   const SELECTORS = /** @type {const} */ ({
     tabsButtons: '#tabs button',
@@ -26,6 +26,7 @@
     defineBtn: '#defineBtn',
     peopleFile: '#peopleFile',
     peopleBtn: '#peopleBtn',
+    makeTeamsBtn: '#makeTeamsBtn',
     openMaster: '#openMaster',
     startRound: '#startRound',
     finishRound: '#finishRound',
@@ -670,22 +671,10 @@
     const totals = {};
     const rounds = new Set();
     
-    // Get completed rounds to check for tutorial rounds
-    const completedRounds = (data.all_rounds || []).filter(r => Number(r.active) === 2);
-    const hasMultipleCompletedRounds = completedRounds.length > 1;
-    
     (data.overall_totals || []).forEach((r) => {
       const t = r.team_id;
       const rn = Number(r.round);
       const sc = Number(r.score);
-      
-      // Skip tutorial rounds (value = 0) if there are multiple completed rounds
-      if (hasMultipleCompletedRounds) {
-        const roundInfo = completedRounds.find(cr => Number(cr.round) === rn);
-        if (roundInfo && Number(roundInfo.value) === 0) {
-          return; // Skip this round
-        }
-      }
       
       rounds.add(rn);
       totals[t] = totals[t] || { team_id: t, per: {}, total: 0 };
@@ -693,17 +682,24 @@
       totals[t].total += sc;
     });
 
+    // Get the last round number for display
     const roundList = Array.from(rounds).sort((a, b) => a - b);
+    const lastRound = roundList.length > 0 ? roundList[roundList.length - 1] : null;
     const teamList = Object.values(totals).sort((a, b) => b.total - a.total);
 
-    let html = '<table><thead><tr><th>Team</th>' +
-      roundList.map((r) => `<th>R${r}</th>`).join('') +
-      '<th>Total</th></tr></thead><tbody>';
-    teamList.forEach((t) => {
+    let html = '<table><thead><tr><th>Rank</th><th>Team</th>';
+    if (lastRound !== null) {
+      html += `<th>R${lastRound}</th>`;
+    }
+    html += '<th>Total</th></tr></thead><tbody>';
+    teamList.forEach((t, index) => {
       const isCurrentTeam = t.team_id === (data.team?.name || '');
       const rowClass = isCurrentTeam ? ' class="current-team"' : '';
-      html += `<tr${rowClass}><td>${t.team_id}</td>`;
-      roundList.forEach((r) => (html += `<td>${t.per[r] ?? ''}</td>`));
+      const rank = index + 1;
+      html += `<tr${rowClass}><td>${rank}</td><td>${t.team_id}</td>`;
+      if (lastRound !== null) {
+        html += `<td>${t.per[lastRound] ?? ''}</td>`;
+      }
       html += `<td><b>${t.total}</b></td></tr>`;
     });
     html += '</tbody></table>';
@@ -1031,6 +1027,30 @@
     } finally { if (btn) btn.disabled = false; }
   }
 
+  async function makeRandomTeams() {
+    const resEl = $('#roundResult');
+    const conf = (prompt('Type MAKE TEAMS to confirm creating random teams from people data:') || '').trim().toUpperCase();
+    if (conf !== 'MAKE TEAMS') { resEl.textContent = 'Make teams cancelled.'; return; }
+    resEl.textContent = 'Creating teams...';
+    const btn = $('#makeTeamsBtn');
+    if (btn) btn.disabled = true;
+    try {
+      const resp = await fetch(API(CMDS.MAKE_TEAMS), { method: 'GET' });
+      const data = await resp.json();
+      if (data.ok) {
+        const removed = data.removed || 0;
+        const teams = data.teams || 0;
+        const created = data.created || 0;
+        resEl.textContent = `Teams created: ${created} people assigned, ${teams} teams created, ${removed} empty teams removed.`;
+      } else {
+        resEl.textContent = 'Make teams failed.';
+      }
+      fetchStatus();
+    } catch (e) {
+      resEl.textContent = 'Network error.';
+    } finally { if (btn) btn.disabled = false; }
+  }
+
   function bindDefine() {
     const input = $('#defineFile');
     const resEl = $('#roundResult');
@@ -1094,6 +1114,7 @@
   $('#finishRound') && $('#finishRound').addEventListener('click', () => setActive(2));
   $('#closeRound') && $('#closeRound').addEventListener('click', () => setActive(0));
   $('#resetBtn') && $('#resetBtn').addEventListener('click', resetAll);
+  $('#makeTeamsBtn') && $('#makeTeamsBtn').addEventListener('click', makeRandomTeams);
   $('#defineBtn') && $('#defineBtn').addEventListener('click', () => { const f = $('#defineFile'); if (f) { f.click(); } });
   $('#peopleBtn') && $('#peopleBtn').addEventListener('click', () => { const f = $('#peopleFile'); if (f) { f.click(); } });
   bindDefine();

@@ -519,31 +519,45 @@ function html_base(): void
 
 // ======== STATUS ========
 
-function get_questions()
+function get_questions($teamRow): array
 {
     $questions = fetch_db_data(FetchType::FetchQuestions);
 
+    $q_names = ['question', 'hint1', 'hint2'];
     foreach ($questions as &$q) {
-        $path = '';
-        if (isset($q['question']) && str_starts_with($q['question'], 'file://')) {
-            $path = substr($q['question'], 7); // strip "file://"
-        }
-        if (isset($q['hint1']) && str_starts_with($q['hint1'], 'file://')) {
-            $path = substr($q['hint1'], 7); // strip "file://"
-        }
-        if (isset($q['hint2']) && str_starts_with($q['hint2'], 'file://')) {
-            $path = substr($q['hint2'], 7); // strip "file://"
-        }
-        if($path !== '') {
-            $fullPath = __DIR__ . '/' . ltrim($path, '/');
-            if (is_file($fullPath)) {
-                $q['question_type'] = 'image/png';
-                $q['question'] = base64_encode(file_get_contents($fullPath));
-            } else {
-                $q['question'] = "not_found";
+        $paths = [];
+        $isImage = '';
+        foreach ($q_names as $q_name) {
+            if (isset($q[$q_name]) && str_starts_with($q[$q_name], 'file://')) {
+                $paths[$q_name] = substr($q[$q_name], 7); // strip "file://"
+                $isImage = $q_name;
             }
-            $q['hint1'] = '';
-            $q['hint2'] = '';
+        }
+        if($isImage !== '') {
+            if($teamRow['is_admin']) {
+                foreach ($q_names as $q_name) {
+                    if (isset($paths[$q_name])) {
+                        $fullPath = __DIR__ . '/' . ltrim($paths[$q_name], '/');
+                        if (is_file($fullPath)) {
+                            $q['question_type'] = 'image/png';
+                            $q[$q_name] = base64_encode(file_get_contents($fullPath));
+                        } else {
+                            $q[$q_name] = "not_found";
+                        }
+                    }
+                }
+            }
+            else {
+                $fullPath = __DIR__ . '/' . ltrim($paths[$isImage], '/');
+                if (is_file($fullPath)) {
+                    $q['question_type'] = 'image/png';
+                    $q['question'] = base64_encode(file_get_contents($fullPath));
+                } else {
+                    $q['question'] = "not_found";
+                }
+                $q['hint1'] = '';
+                $q['hint2'] = '';
+            }
         }
         else {
             $q['question_type'] = 'text';
@@ -561,7 +575,7 @@ function get_status($teamRow): array
         'all_rounds'     => fetch_db_data(FetchType::FetchRounds),
         'overall_totals' => fetch_db_data(FetchType::FetchScoreTotal),
         'my_actions'     => fetch_db_data(FetchType::FetchActions, team_id: $teamRow['team_id']),
-        'questions'      => get_questions()
+        'questions'      => get_questions($teamRow)
     ];
     if($teamRow['is_admin']) {
         $ret['round_progress'] = fetch_db_data(FetchType::ProgressRound);
@@ -832,8 +846,8 @@ switch ($cmd) {
         }
         $json = define_people();
         break;
-    case 'teams':
-        if(!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    case 'make_teams':
+        if(!$teamRow['is_admin']) {
             respond_forbidden();
         }
         $json = create_random_teams();
