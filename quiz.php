@@ -28,6 +28,9 @@ enum FetchType: int
     case FetchAllTeams = 15;
     case FetchTeamAnswers = 16;
     case FetchAllAnswers = 17;
+    case MakeRandomTeams = 18;
+    case RemoveEmptyTeams = 19;
+    case CreateEmptyTeams = 20;
 }
 
 function pg(): ?PDO
@@ -308,6 +311,111 @@ EOL,
         join rounds using(round)
         join teams using(team_id)
     order by letter, team_id;
+EOL,
+        FetchType::MakeRandomTeams->value => /** @lang PostgreSQL */ <<<EOL
+    with
+        n_teams as (
+            select ceil(count(1) / 5.0)::integer as total
+            from people
+            where preference = 'R' and team_id is null
+        ),
+        ppl as (
+            select people_id, primary_group, secondary_group, random() as rnd
+            from people
+            where preference = 'R'
+        ),
+        prim as (
+            select count(people_id) as n, primary_group
+            from ppl
+            group by primary_group
+        ),
+        groups_to_shrink as (
+            select prim.*, n - total as diff
+            from prim, n_teams
+            where n > total
+        ),
+        n_people_available as (
+            select sum(diff) as n_available
+            from groups_to_shrink
+        ),
+        groups_to_expand_all as (
+            select prim.*, total - n as diff
+            from prim, n_teams
+            where n < total
+        ),
+        tmp1 as (
+            select primary_group, diff, sum(diff) over w as s, sum(diff) over w - diff as p
+            from groups_to_expand_all
+            window w as (order by diff desc, primary_group)
+        ),
+        groups_to_expand as (
+            select primary_group, diff, s, p
+            from tmp1, n_people_available
+            where p < n_available
+        ),
+        ordered_pool as (
+            select *, rank() over (order by secondary_group desc, rnd) as r
+            from ppl
+            join groups_to_shrink using(primary_group)
+        ),
+        moved_people as (
+            select ordered_pool.primary_group as from_group, groups_to_expand.primary_group as to_group, people_id, rnd
+            from ordered_pool, groups_to_expand, n_people_available
+            where ordered_pool.secondary_group = groups_to_expand.primary_group or ordered_pool.secondary_group = 0
+                and r <= groups_to_expand.s and r > groups_to_expand.p and r <= n_available
+        ),
+        ready_for_teams as (
+            select people_id, primary_group, ppl.rnd
+            from ppl
+                left join moved_people using(people_id)
+            where from_group is null
+            union
+            select people_id, to_group, rnd
+            from moved_people
+        ),
+        teams_src as (
+            select primary_group, people_id, rank() over (partition by primary_group order by rnd) as r
+            from ready_for_teams
+        ),
+        t as (
+            select team_id, rank() over (order by team_id) as tr
+            from teams
+            where not is_admin
+        ),
+        update_src as (
+            select people_id, team_id, primary_group
+            from t
+                 join teams_src on r = tr
+            order by team_id, primary_group
+        )
+    --select * from prim;
+    --select * from n_people_available;
+    --select * from groups_to_shrink;
+    --select * from groups_to_expand_all;
+    --select * from groups_to_expand;
+    --select * from moved_people;
+    update people
+    set team_id = update_src.team_id
+    from update_src
+    where people.people_id = update_src.people_id
+    returning *;
+EOL,
+        FetchType::RemoveEmptyTeams->value => /** @lang PostgreSQL */ <<<EOL
+    with delete_batch as (
+        select team_id
+        from (
+            select team_id, count(people_id) as c
+            from teams
+            left join people using(team_id)
+            where not is_admin
+            group by team_id
+        ) t
+        where c = 0
+    )
+    delete from teams
+    using delete_batch as db
+    where teams.team_id = db.team_id
+    returning *;
 EOL
     ];
 
@@ -321,7 +429,7 @@ EOL
         FetchType::CloseRound->value,
         FetchType::StartRound->value,
         FetchType::EndRound->value,
-        FetchType::LastSeen->value
+        FetchType::LastSeen->value,
     ];
 
     $params = [];
@@ -509,7 +617,6 @@ function rename_team($teamRow): array
     ];
 }
 
-
 //ADMIN endpoints
 function update_round(): array
 {
@@ -610,15 +717,14 @@ function define_people(): array
     try{
         if(isset($payload['people'])) {
             pg()->exec('DELETE FROM people;');
-            $ins=pg()->prepare('INSERT INTO people(people_id, name, login, primary_group, secondary_group, preference) VALUES(:id, :name, :login, :prim, :sec, :pref)');
+            $ins=pg()->prepare('INSERT INTO people(people_id, name, login, primary_group, secondary_group) VALUES(:id, :name, :login, :prim, :sec)');
             foreach($payload['people'] as $p) {
                 $ins->execute([
                     ':id'=>$p['people_id'],
                     ':name'=>$p['name']??null,
                     ':login'=>$p['login']??null,
                     ':prim'=>$p['primary']??null,
-                    ':sec'=>$p['secondary']??null,
-                    ':pref'=>$p['preference']??null
+                    ':sec'=>$p['secondary']??null
                 ]);
             }
         }
@@ -651,6 +757,27 @@ EOL
         );
         pg()->commit();
         return ['ok'=>true];
+    } catch(Throwable $e){
+        if(pg()->inTransaction())
+            pg()->rollBack();
+        return['ok'=>false, 'ex' => $e];
+    }
+}
+
+function create_random_teams(): array
+{
+    pg()->beginTransaction();
+    try{
+        $removed = fetch_db_data(FetchType::RemoveEmptyTeams);
+        $teams = fetch_db_data(FetchType::CreateEmptyTeams);
+        $created = fetch_db_data(FetchType::MakeRandomTeams);
+        pg()->commit();
+        return [
+            'ok'=>true,
+            'removed' => count($removed),
+            'teams' => count($teams),
+            'created' => count($created)
+        ];
     } catch(Throwable $e){
         if(pg()->inTransaction())
             pg()->rollBack();
@@ -704,6 +831,12 @@ switch ($cmd) {
             respond_forbidden();
         }
         $json = define_people();
+        break;
+    case 'teams':
+        if(!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+            respond_forbidden();
+        }
+        $json = create_random_teams();
         break;
     default:
         html_base();
