@@ -1,0 +1,403 @@
+/* Mobile-first registration interface styling */
+:root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --secondary: #64748b;
+    --secondary-hover: #475569;
+    --success: #059669;
+    --warning: #d97706;
+    --error: #dc2626;
+    --background: #f8fafc;
+    --surface: #ffffff;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+    --border-light: #f1f5f9;
+    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --radius: 0.5rem;
+    --radius-lg: 0.75rem;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--background);
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+}
+
+/* Header */
+header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+#title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text);
+}
+
+.status-indicator {
+    padding: 0.25rem 0.75rem;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    font-weight: 500;
+    background: var(--border-light);
+    color: var(--text-muted);
+}
+
+.status-indicator.active {
+    background: var(--success);
+    color: white;
+}
+
+.status-indicator.waiting {
+    background: var(--warning);
+    color: white;
+}
+
+/* Main content */
+main {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+/* Cards */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    box-shadow: var(--shadow);
+}
+
+.card.error {
+    border-color: var(--error);
+    background: #fef2f2;
+}
+
+.card h2 {
+    margin: 0 0 1rem 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.card h3 {
+    margin: 0 0 0.75rem 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.card p {
+    margin: 0 0 1rem 0;
+    color: var(--text-muted);
+}
+
+/* Buttons */
+button {
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    min-height: 2.75rem;
+    padding: 0.75rem 1rem;
+    width: 100%;
+    margin-bottom: 0.5rem;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+button.primary {
+    background: var(--primary);
+    color: white;
+}
+
+button.primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lg);
+}
+
+button.secondary {
+    background: var(--secondary);
+    color: white;
+}
+
+button.secondary:hover:not(:disabled) {
+    background: var(--secondary-hover);
+}
+
+/* Preference buttons */
+.button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.preference-btn {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    color: var(--text);
+    text-align: left;
+    padding: 1rem;
+    flex-direction: column;
+    align-items: flex-start;
+    min-height: auto;
+}
+
+.preference-btn:hover {
+    border-color: var(--primary);
+    background: #f0f9ff;
+}
+
+.preference-btn .icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.preference-btn .text {
+    font-weight: 600;
+    font-size: 1.125rem;
+    margin-bottom: 0.25rem;
+}
+
+.preference-btn .desc {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+/* Team display */
+.current-team {
+    background: var(--border-light);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.team-symbol {
+    width: 4rem;
+    height: 4rem;
+    margin: 0 auto 1rem auto;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    background: var(--primary);
+    color: white;
+}
+
+.team-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.team-details h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.25rem;
+}
+
+.team-members {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.team-members li {
+    padding: 0.25rem 0;
+    color: var(--text-muted);
+}
+
+/* Search functionality */
+.search-section {
+    margin-bottom: 1rem;
+}
+
+.search-section label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+}
+
+.search-section input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.search-section input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgb(37 99 235 / 0.1);
+}
+
+.search-results {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.search-result {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.search-result:hover {
+    background: var(--border-light);
+}
+
+.search-result:last-child {
+    border-bottom: none;
+}
+
+.search-result .name {
+    font-weight: 500;
+    color: var(--text);
+}
+
+.search-result .login {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.search-result .team {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+/* Loading states */
+.loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid var(--border);
+    border-top: 3px solid var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 1rem auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Phase management */
+.phase {
+    display: block;
+}
+
+.phase.hidden {
+    display: none;
+}
+
+/* Join game section */
+.join-game {
+    text-align: center;
+    padding: 1rem;
+    background: var(--border-light);
+    border-radius: var(--radius);
+    margin-top: 1rem;
+}
+
+.join-game p {
+    margin: 0 0 1rem 0;
+    font-weight: 500;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 1rem;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
+}
+
+/* Responsive design */
+@media (min-width: 640px) {
+    .button-group {
+        flex-direction: row;
+    }
+    
+    .preference-btn {
+        flex: 1;
+    }
+    
+    .team-info {
+        flex-direction: row;
+    }
+    
+    .team-symbol {
+        margin: 0;
+    }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Focus styles */
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    :root {
+        --border: #000000;
+        --text-muted: #000000;
+    }
+}

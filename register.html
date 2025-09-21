@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pub Quiz Registration</title>
+    <link rel="stylesheet" href="register.css" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+</head>
+<body>
+<header>
+    <div class="header-content">
+        <h1 id="title">Pub Quiz Registration</h1>
+        <div id="status" class="status-indicator"></div>
+    </div>
+</header>
+
+<main>
+    <!-- Phase 1: Simple Interest Registration (status 1) -->
+    <section id="phase1" class="phase hidden">
+        <div class="card">
+            <h2>Join the Quiz!</h2>
+            <p>Click the button below to register your interest in playing the pub quiz.</p>
+            <button id="registerInterest" class="primary">I Want to Play</button>
+        </div>
+    </section>
+
+    <!-- Phase 2: Preference Selection (status 2) -->
+    <section id="phase2" class="phase hidden">
+        <div class="card">
+            <h2>Team Preference</h2>
+            <p>How would you like to be assigned to a team?</p>
+            <div class="button-group">
+                <button id="preferRandom" class="preference-btn">
+                    <span class="icon">🎲</span>
+                    <span class="text">Random Teams</span>
+                    <span class="desc">Let the system assign me to a team</span>
+                </button>
+                <button id="preferOrganize" class="preference-btn">
+                    <span class="icon">👥</span>
+                    <span class="text">Choose My Team</span>
+                    <span class="desc">I want to choose my teammates</span>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Phase 3: Team Formation (status 3) -->
+    <section id="phase3" class="phase hidden">
+        <div class="card">
+            <h2>Team Formation</h2>
+            <div id="currentTeam" class="current-team hidden">
+                <h3>Your Team</h3>
+                <div id="teamMembers"></div>
+                <button id="leaveTeam" class="secondary">Leave Team</button>
+            </div>
+            
+            <div id="teamActions">
+                <h3>Find a Team</h3>
+                <div class="search-section">
+                    <label for="personSearch">Search for a person:</label>
+                    <input type="text" id="personSearch" placeholder="Type name or login..." />
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+                
+                <div class="team-actions">
+                    <button id="createTeam" class="primary">Create New Team</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Phase 4: Team Assigned (status 4) -->
+    <section id="phase4" class="phase hidden">
+        <div class="card">
+            <h2>Your Team</h2>
+            <div id="teamInfo">
+                <div id="teamSymbol" class="team-symbol"></div>
+                <div id="teamDetails">
+                    <h3 id="teamName"></h3>
+                    <div id="teamMembersList"></div>
+                </div>
+            </div>
+            <div class="join-game">
+                <p>Ready to start the quiz?</p>
+                <button id="joinGame" class="primary">Join Game</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Loading and Error States -->
+    <section id="loading" class="phase hidden">
+        <div class="card">
+            <div class="loading-spinner"></div>
+            <p id="loadingText">Loading...</p>
+        </div>
+    </section>
+
+    <section id="error" class="phase hidden">
+        <div class="card error">
+            <h2>Error</h2>
+            <p id="errorMessage">Something went wrong. Please try again.</p>
+            <button id="retryButton" class="primary">Retry</button>
+        </div>
+    </section>
+</main>
+
+<footer>
+    <small id="footer">Pub Quiz Registration System</small>
+</footer>
+
+<script src="register.js" defer></script>
+</body>
+</html>

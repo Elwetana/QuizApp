@@ -200,6 +200,16 @@ before the second hint. Finally, score == value / 4 means it was submitted after
 
 # Matchmaking
 
+Matchmaking has two phases: in the first, where `teams_status`.`status` is either 1 or 2, the players can register their interest in the game by either:
+
+* when `status` == 1: just clicking a button "I want to play", this will send command to server and update the column `preference` for that player from null to 'R'.
+* when `status` == 2: user is presented with two buttons, "I want to play and prefer random teams" and "I want to play and prefer to choose my team". Pressing one of these will send a command to server and update the preference column to either 'R' or 'O'
+
+In the second phase, if `teams_status.status` == 3, the players that have selected preference 'O' will be presented with a form where they could find a team by typing name of a person and join that team, found a new team (if there are team slots available) or leave a team if they are already part of one.
+
+After this phase (which may not even happen, if status was previously 1), admin will force creation of random teams and status will be updated to 4.
+
+When `teams_status.status` == 4, the players can only see the name of their team and their teammates. Every team will be also assigned a symbol (a colourful SVG driving) that can be maximized on their phones and used to signal to others their team allegiance. The application will also provide link to quiz.php?team=<team_id> so that they can join the game.
 
 # Changes from the design to be implemented
 
