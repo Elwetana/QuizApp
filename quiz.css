@@ -49,6 +49,28 @@ button.primary { background: var(--accent); color: #052e13; border-color: #14532
 .hidden { display: none !important; }
 #scoreboard table { width: 100%; border-collapse: collapse; }
 #scoreboard th, #scoreboard td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
+#scoreboard tr.current-team { background: rgba(34, 197, 94, 0.1); border-left: 3px solid var(--accent); }
+#lastCompletedRound table { width: 100%; border-collapse: collapse; }
+#lastCompletedRound th, #lastCompletedRound td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
+#lastCompletedRound tr.current-team { background: rgba(34, 197, 94, 0.1); border-left: 3px solid var(--accent); }
+#lastCompletedRound tr.current-team td { font-weight: 100; }
+#teamResponses table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+#teamResponses th, #teamResponses td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
+#teamResponses .points { text-align: center; font-weight: 600; }
+#teamResponses .points.positive { color: var(--accent); }
+#teamResponses .points.negative { color: #ef4444; }
+
+/* Help content styling */
+#helpContent h1 { font-size: 1.5rem; margin: 1rem 0 0.5rem 0; color: var(--accent); }
+#helpContent h2 { font-size: 1.25rem; margin: 1rem 0 0.5rem 0; color: var(--text); }
+#helpContent h3 { font-size: 1.1rem; margin: 0.75rem 0 0.25rem 0; color: var(--text); }
+#helpContent p { margin: 0.5rem 0; line-height: 1.5; }
+#helpContent ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+#helpContent li { margin: 0.25rem 0; line-height: 1.0; }
+#helpContent strong { color: var(--accent); font-weight: 600; }
+#helpContent em { color: var(--muted); }
+#helpContent code { background: #1f2937; padding: 0.2rem 0.4rem; border-radius: 0.3rem; font-family: monospace; }
+#helpContent a { color: var(--accent-2); text-decoration: underline; }
 .tab#history table { width: 100%; border-collapse: collapse; }
 .tab#history th, .tab#history td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
 .result { margin-top: .5rem; min-height: 1.2rem; color: var(--muted); }

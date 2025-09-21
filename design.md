@@ -9,6 +9,14 @@ The application is a simple, single-page application, written in pure HTML, CSS 
 
 Furthermore, the application will be accessing Postgresql database as the user quiz. The database has the following tables:
 
+* people
+  * people_id varchar 8 PK
+  * name text
+  * login text
+  * primary_group integer
+  * secondary_group integer
+  * preference char
+  * team_id varchar 8 FK to teams
 * teams
   * team_id varchar 8 PK
   * name text
@@ -42,6 +50,8 @@ Furthermore, the application will be accessing Postgresql database as the user q
   * active integer default 0 //0 = not started, 1 = in progress, 2 = completed
   * started timestamp without timezone
   * value integer not null
+* teams_status
+  * status integer //0 not started, 1 register interest only, 2 register interest and preference (random vs. self-organized teams), 3 team formation in progress, 4 teams are formed
 
 The primary access device is a mobile phone, desktop performance and ergonomics are not important.
 
@@ -72,6 +82,9 @@ This is POST request with parameter team that must be the admin team. The body o
 ## Reset
 Delete all rows in Teams_per_round and Actions, set active in all rounds to 0, set all cooldowns in Teams to their default values
 
+## People
+POST request that submits a JSON with property `people` that includes an array of records to be inserted into table `people`. Only available to admins.
+
 ## Rules for guessing
 Perform the following checks:
 
@@ -91,9 +104,9 @@ If there is a match, the team will be scored, based on the following rules:
 * Determine the phase of the round. Check columns length and started in table Rounds.
 * If we are within this interval (i.e. now() < started + length  * interval ‘1 second’), then use base score
 * If we are after this interval, but within 1.5 * length seconds, divide base score by 2
-+ If we are even later than this (i.e now() > started + 1.5 * length * interval '1 second') then divide base score by 4 
++ If we are even later than this (i.e. now() > started + 1.5 * length * interval '1 second') then divide base score by 4 
 
-Finally update actions table and return 0. The teams do not know if the guess was successful or not.
+Finally, update actions table and return 0. The teams do not know if the guess was successful or not.
 
 ## Rules for scoring end of round
 When admin team sets active column of table Rounds to 2, that round will be scored. Follow these rules:
@@ -105,7 +118,7 @@ When admin team sets active column of table Rounds to 2, that round will be scor
   * If the tie persists, the order is broken randomly
 * The teams in first half (rounded up) will be awarded points by this formula:
   * The column value in table Rounds plus * 100
-  * Number of teams / 2 - team rank, i.e. the first team will getn (n_teams / 2 - 1) points
+  * Number of teams / 2 - team rank, i.e. the first team will get (n_teams / 2 - 1) points
 
 Insert new row for each team into the teams_per_round table with the final score for this round.
 
@@ -172,7 +185,7 @@ The sidebar on the right shows the current leaderboard.
 
 ## If there's no Active Round
 
-If the quiz haven't started yet (i.e all rounds have active == 0), then don't display anything, but text "Game haven't 
+If the quiz haven't started yet (i.e. all rounds have active == 0), then don't display anything, but text "Game haven't 
 started yet". Otherwise, the server will supply the information about the question from the last finished round and list
 all guesses made by teams. We want to display the questions as follows:
 
@@ -185,15 +198,18 @@ Each guess has property score and property value. If score == value than this wa
 was displayed, it should have the best background colour. If score == value / 2, it was successful after the first but
 before the second hint. Finally, score == value / 4 means it was submitted after second hint. 
 
+# Matchmaking
+
+
 # Changes from the design to be implemented
 
 * [x] Do not return points for the current round, the team will only learn about the score from the round at the end of the round
 * [x] Feed client information about all rounds, so that the teams can see how many points can be won in future
 * [x] Allow pictures as questions
 * [x] Unify Questions and Guess tabs
-* [ ] Add Help tab for Players
-* [ ] Better info about previous actions
-* [ ] Better info about situation
+* [x] Add Help tab for Players
+* [x] Better info about previous actions
+* [x] Better info about situation
 * [x] Store answer before normalizing (but after some cleaning)
 * [x] Create 'quiz master' client
 * [x] Live round results for admin in admin tab

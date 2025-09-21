@@ -4,7 +4,7 @@
    * Constants and lightweight enums
    */
   const POLL_MS = 60000;
-  const CMDS = /** @type {const} */ ({ STATUS: 'status', GUESS: 'guess', RENAME: 'rename', ROUND: 'round', DEFINE: 'define', RESET: 'reset' });
+  const CMDS = /** @type {const} */ ({ STATUS: 'status', GUESS: 'guess', RENAME: 'rename', ROUND: 'round', DEFINE: 'define', RESET: 'reset', PEOPLE: 'people' });
   const REASONS = /** @type {const} */ ({ COOLDOWN: 'cooldown_active', NO_LETTER: 'no_letter', NO_ACTIVE: 'no_active', NOT_ACCEPTED: 'not_accepted' });
   const SELECTORS = /** @type {const} */ ({
     tabsButtons: '#tabs button',
@@ -24,6 +24,8 @@
     roundResult: '#roundResult',
     defineFile: '#defineFile',
     defineBtn: '#defineBtn',
+    peopleFile: '#peopleFile',
+    peopleBtn: '#peopleBtn',
     openMaster: '#openMaster',
     startRound: '#startRound',
     finishRound: '#finishRound',
@@ -137,6 +139,106 @@
     }, 1000);
   }
 
+  // Markdown converter
+  function convertMarkdown(markdown) {
+    // First, handle lists properly by processing line by line
+    // Normalize line endings and split - handles \r\n (Windows), \n (Unix), \r (Mac)
+    let lines = markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    let result = [];
+    let currentList = null;
+    let listType = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      
+      // Check for unordered list item
+      if (line.match(/^\- (.*)$/g)) {
+        let content = line.replace(/^\- (.*)$/g, '$1');
+        if (currentList === null || listType !== 'ul') {
+          // Close previous list if exists
+          if (currentList !== null) {
+            result.push(`</${listType}>`);
+          }
+          // Start new unordered list
+          currentList = [];
+          listType = 'ul';
+        }
+        currentList.push(`<li>${content}</li>`);
+      }
+      // Check for ordered list item
+      else if (line.match(/^\d+\. (.*)$/g)) {
+        let content = line.replace(/^\d+\. (.*)$/g, '$1');
+        if (currentList === null || listType !== 'ol') {
+          // Close previous list if exists
+          if (currentList !== null) {
+            result.push(`</${listType}>`);
+          }
+          // Start new ordered list
+          currentList = [];
+          listType = 'ol';
+        }
+        currentList.push(`<li>${content}</li>`);
+      }
+      // Non-list line
+      else {
+        // Close current list if exists
+        if (currentList !== null) {
+          result.push(`<${listType}>${currentList.join('')}</${listType}>`);
+          currentList = null;
+          listType = null;
+        }
+        result.push(line);
+      }
+    }
+    
+    // Close any remaining list
+    if (currentList !== null) {
+      result.push(`<${listType}>${currentList.join('')}</${listType}>`);
+    }
+    
+    // Join lines and apply other markdown formatting
+    let processed = result.join('\n');
+    
+    return processed
+      // Headers
+      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+      // Bold and italic
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      // Code
+      .replace(/`(.*?)`/g, '<code>$1</code>')
+      // Links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+      // Paragraphs
+      .split('\n\n')
+      .map(para => {
+        if (!para.trim()) return '';
+        // Don't wrap HTML tags (headers, lists, etc.) in paragraph tags
+        if (para.match(/^<(h[1-6]|ul|ol|li|p|div|code|pre)/)) {
+          return para.trim();
+        }
+        return `<p>${para.replace(/\n/g, '<br>')}</p>`;
+      })
+      .join('');
+  }
+
+  // Load help content
+  async function loadHelpContent() {
+    const container = document.getElementById('helpContent');
+    if (!container) return;
+
+    try {
+      const response = await fetch('help.md');
+      if (!response.ok) throw new Error('Help file not found');
+      const markdown = await response.text();
+      container.innerHTML = convertMarkdown(markdown);
+    } catch (e) {
+      container.innerHTML = '<p><em>Help content unavailable. Please check your connection.</em></p>';
+    }
+  }
+
   // Initial caption fallback to team code
   const cap = document.getElementById('caption');
   if (cap) cap.textContent = TEAM || 'Pub Quiz';
@@ -149,6 +251,11 @@
       const id = btn.dataset.tab;
       $$(SELECTORS.tab).forEach((s) => s.classList.remove('active'));
       document.getElementById(id).classList.add('active');
+      
+      // Load help content when help tab is clicked
+      if (id === 'help') {
+        loadHelpContent();
+      }
     })
   );
 
@@ -562,10 +669,24 @@
   function renderScoreboard(data) {
     const totals = {};
     const rounds = new Set();
+    
+    // Get completed rounds to check for tutorial rounds
+    const completedRounds = (data.all_rounds || []).filter(r => Number(r.active) === 2);
+    const hasMultipleCompletedRounds = completedRounds.length > 1;
+    
     (data.overall_totals || []).forEach((r) => {
       const t = r.team_id;
       const rn = Number(r.round);
       const sc = Number(r.score);
+      
+      // Skip tutorial rounds (value = 0) if there are multiple completed rounds
+      if (hasMultipleCompletedRounds) {
+        const roundInfo = completedRounds.find(cr => Number(cr.round) === rn);
+        if (roundInfo && Number(roundInfo.value) === 0) {
+          return; // Skip this round
+        }
+      }
+      
       rounds.add(rn);
       totals[t] = totals[t] || { team_id: t, per: {}, total: 0 };
       totals[t].per[rn] = sc;
@@ -579,7 +700,9 @@
       roundList.map((r) => `<th>R${r}</th>`).join('') +
       '<th>Total</th></tr></thead><tbody>';
     teamList.forEach((t) => {
-      html += `<tr><td>${t.team_id}</td>`;
+      const isCurrentTeam = t.team_id === (data.team?.name || '');
+      const rowClass = isCurrentTeam ? ' class="current-team"' : '';
+      html += `<tr${rowClass}><td>${t.team_id}</td>`;
       roundList.forEach((r) => (html += `<td>${t.per[r] ?? ''}</td>`));
       html += `<td><b>${t.total}</b></td></tr>`;
     });
@@ -593,6 +716,111 @@
       note.innerHTML = `Overall leader: <b>${winner.team_id}</b> (${winner.total} pts)`;
       if (sc) sc.prepend(note);
     }
+  }
+
+  function renderLastCompletedRound(data) {
+    const container = document.getElementById('lastCompletedRound');
+    if (!container) return;
+
+    // Get the last completed round (active == 2)
+    const completedRounds = (data.all_rounds || []).filter(r => Number(r.active) === 2);
+    if (!completedRounds.length) {
+      container.textContent = 'No completed rounds yet.';
+      return;
+    }
+
+    const lastRound = completedRounds.sort((a, b) => Number(b.round) - Number(a.round))[0];
+    
+    // Get round scores for this round from overall_totals
+    const roundScores = (data.overall_totals || [])
+      .filter(r => Number(r.round) === Number(lastRound.round))
+      .map(r => ({
+        team: String(r.team_id || ''),
+        round_score: Number(r.round_score || 0)
+      }))
+      .sort((a, b) => b.round_score - a.round_score);
+
+    if (!roundScores.length) {
+      container.textContent = 'No scores available for this round.';
+      return;
+    }
+
+    let html = `<h3>Round ${lastRound.round} Results</h3>`;
+    html += '<table><thead><tr><th>Team</th><th>Round Score</th></tr></thead><tbody>';
+    
+    roundScores.forEach((team) => {
+      const isCurrentTeam = team.team === (data.team?.name || '');
+      const rowClass = isCurrentTeam ? ' class="current-team"' : '';
+      html += `<tr${rowClass}><td>${team.team}</td><td><b>${team.round_score}</b></td></tr>`;
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  }
+
+  function renderTeamResponses(data) {
+    const container = document.getElementById('teamResponses');
+    if (!container) return;
+
+    // Only show team responses when no round is active and team_answers is available
+    const hasActiveRound = data.current_round && Number(data.current_round.active) === 1;
+    if (hasActiveRound || !data.team_answers || !Array.isArray(data.team_answers)) {
+      container.innerHTML = '';
+      return;
+    }
+
+    const teamAnswers = data.team_answers;
+    if (!teamAnswers.length) {
+      container.innerHTML = '<p>No responses available.</p>';
+      return;
+    }
+
+    // Sort by letter for consistent display
+    const sortedAnswers = teamAnswers.slice().sort((a, b) => (a.letter || '').localeCompare(b.letter || ''));
+
+    let html = '<h4>Your Responses</h4>';
+    html += '<table><thead><tr><th>Question</th><th>Your Answer</th><th>Points</th></tr></thead><tbody>';
+    
+    sortedAnswers.forEach((answer) => {
+      const letter = answer.letter || '';
+      const answered = (answer.answered || '').toString();
+      const points = Number(answer.points);
+      const value = Number(answer.value);
+      
+      // Format points display
+      let pointsDisplay = points.toString();
+      let pointsClass = 'points';
+      
+      if (points >= 0) {
+        pointsClass += ' positive';
+        const actualScore = points * 100; // Convert to actual score
+        if (points === value) {
+          pointsDisplay = `+${actualScore} (full)`;
+        } else if (points === value / 2) {
+          pointsDisplay = `+${actualScore} (hint 1)`;
+        } else if (points === value / 4) {
+          pointsDisplay = `+${actualScore} (hint 2)`;
+        } else {
+          pointsDisplay = `+${actualScore}`;
+        }
+      } else if (points === -1) {
+        // -1 means wrong answer, but doesn't subtract from total
+        pointsDisplay = '0';
+        pointsClass += ' negative';
+      } else {
+        pointsClass += ' negative';
+        pointsDisplay = points.toString();
+      }
+      
+      html += `<tr>
+        <td><strong>${letter}</strong></td>
+        <td>${answered}</td>
+        <td class="${pointsClass}">${pointsDisplay}</td>
+      </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
   }
 
   function renderAdminRoundButtons(data) {
@@ -690,6 +918,8 @@
         renderCurrentRound(data);
         renderQuestions(data);
         renderScoreboard(data);
+        renderLastCompletedRound(data);
+        renderTeamResponses(data);
         renderHistory(data);
         renderRoundsOverview(data);
         renderAdminRoundButtons(data);
@@ -765,8 +995,8 @@
   }
 
   async function setActive(active) {
-    const round = Number(selectedRound || 0);
-    if (!round) { $('#roundResult').textContent = 'Pick a round.'; return; }
+    if (selectedRound === null) { $('#roundResult').textContent = 'Pick a round.'; return; }
+    const round = Number(selectedRound);
     const map = { 0: 'Closing...', 1: 'Starting...', 2: 'Finishing...' };
     $('#roundResult').textContent = map[active] || 'Updating...';
     try {
@@ -824,6 +1054,29 @@
     };
   }
 
+  function bindPeople() {
+    const input = $('#peopleFile');
+    const resEl = $('#roundResult');
+    if (!input) return;
+    input.onchange = async () => {
+      if (!input.files || !input.files[0]) return;
+      const file = input.files[0];
+      try {
+        const text = await file.text();
+        JSON.parse(text); // sanity check
+        resEl.textContent = 'Uploading...';
+        const resp = await fetch(API(CMDS.PEOPLE), { method: 'POST', body: text, headers: { 'Content-Type': 'application/json' } });
+        const data = await resp.json();
+        resEl.textContent = data.ok ? 'People completed.' : 'People failed.';
+        fetchStatus();
+      } catch (e) {
+        resEl.textContent = 'Invalid JSON or network error.';
+      } finally {
+        input.value = '';
+      }
+    };
+  }
+
   async function submitCaptionRename(name) {
     const newName = (name || '').trim();
     if (!newName) return false;
@@ -842,7 +1095,9 @@
   $('#closeRound') && $('#closeRound').addEventListener('click', () => setActive(0));
   $('#resetBtn') && $('#resetBtn').addEventListener('click', resetAll);
   $('#defineBtn') && $('#defineBtn').addEventListener('click', () => { const f = $('#defineFile'); if (f) { f.click(); } });
+  $('#peopleBtn') && $('#peopleBtn').addEventListener('click', () => { const f = $('#peopleFile'); if (f) { f.click(); } });
   bindDefine();
+  bindPeople();
   // Normalize Define button text if encoded oddly
   const defBtnEl = $('#defineBtn');
   if (defBtnEl && defBtnEl.textContent.trim() === 'Define.') defBtnEl.textContent = 'Define…';

@@ -554,18 +554,21 @@ function define_data(): array
 
     pg()->beginTransaction();
     try{
+        pg()->exec('DELETE FROM teams_per_round;');
+        pg()->exec('DELETE FROM actions;');
         if(isset($payload['teams'])) {
-            $ins=pg()->prepare('INSERT INTO teams(team_id,name) VALUES(:id,:name)
-                                ON CONFLICT (team_id) DO UPDATE SET name=EXCLUDED.name');
+            $del = pg()->prepare('DELETE FROM teams where not is_admin;');
+            $del->execute();
+            $ins=pg()->prepare('INSERT INTO teams(team_id,name) VALUES(:id,:name)');
             foreach($payload['teams'] as $t) {
                 $ins->execute([':id'=>$t['team_id'],':name'=>$t['name']??null]);
             }
 	}
         if(isset($payload['rounds'])){
             $del = pg()->prepare('DELETE FROM questions;');
-	    $del->execute();
+	        $del->execute();
             $del = pg()->prepare('delete from rounds;');
-	    $del->execute();
+	        $del->execute();
             $ins=pg()->prepare('INSERT INTO rounds(round,name,length,active,started,value) VALUES(:r,:n,:l,0,NULL,:v)
                                 ON CONFLICT (round) DO UPDATE SET name=EXCLUDED.name, length=EXCLUDED.length, value=EXCLUDED.value');
             foreach($payload['rounds'] as $r) {
@@ -582,6 +585,41 @@ function define_data(): array
                 foreach($qs as $q) {
                     $ins->execute([':r'=>$q['round'],':l'=>$q['letter'],':q'=>$q['question'],':h1'=>$q['hint1']??null,':h2'=>$q['hint2']??null,':a'=>$q['answer']]);
                 }
+            }
+        }
+        pg()->commit();
+        return ['ok'=>true];
+    }
+    catch(Throwable $e) {
+        if(pg()->inTransaction())
+            pg()->rollBack();
+        return ['ok'=>false,'error'=>'server_error', 'ex' => $e];
+    }
+}
+
+function define_people(): array
+{
+    $payload = json_decode(file_get_contents('php://input') ?: '[]', true);
+    if(!is_array($payload))
+        return [
+            'ok'=>false,
+            'error'=>'bad_json'
+        ];
+
+    pg()->beginTransaction();
+    try{
+        if(isset($payload['people'])) {
+            pg()->exec('DELETE FROM people;');
+            $ins=pg()->prepare('INSERT INTO people(people_id, name, login, primary_group, secondary_group, preference) VALUES(:id, :name, :login, :prim, :sec, :pref)');
+            foreach($payload['people'] as $p) {
+                $ins->execute([
+                    ':id'=>$p['people_id'],
+                    ':name'=>$p['name']??null,
+                    ':login'=>$p['login']??null,
+                    ':prim'=>$p['primary']??null,
+                    ':sec'=>$p['secondary']??null,
+                    ':pref'=>$p['preference']??null
+                ]);
             }
         }
         pg()->commit();
@@ -660,6 +698,12 @@ switch ($cmd) {
             respond_forbidden();
         }
         $json = reset_data();
+        break;
+    case 'people':
+        if(!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+            respond_forbidden();
+        }
+        $json = define_people();
         break;
     default:
         html_base();
