@@ -31,6 +31,10 @@ enum FetchType: int
     case MakeRandomTeams = 18;
     case RemoveEmptyTeams = 19;
     case CreateEmptyTeams = 20;
+    case FetchPeople = 21;
+    case MovePersonToTeam = 22;
+    case RegisterInterest = 23;
+    case FetchPersonTeam = 24;
 }
 
 function pg(): ?PDO
@@ -415,6 +419,37 @@ EOL,
     delete from teams
     using delete_batch as db
     where teams.team_id = db.team_id
+    returning *;
+EOL,
+        FetchType::CreateEmptyTeams->value => /** @lang PostgreSQL */ <<<EOL
+    with
+        team_names(o, name) as (
+            values(1, 'Alpha'), (2, 'Bravo'), (3, 'Charlie'), (4, 'Delta'), (5, 'Echo'), (6, 'Foxtrot'), (7, 'Golf'), (8, 'Hotel'), (9, 'India'), (10, 'Juliett'), (11, 'Kilo'), (12, 'Lima'), (13, 'Mike'), (14, 'November'), (15, 'Oscar'), (16, 'Papa'), (17, 'Quebec'), (18, 'Romeo'), (19, 'Sierra'), (20, 'Tango'), (21, 'Uniform'), (22, 'Victor'), (23, 'Whiskey'), (24, 'X-ray'), (25, 'Yankee'), (26, 'Zulu'), (27, 'Zero'), (28, 'One'), (29, 'Two'), (30, 'Three'), (31, 'Four'), (32, 'Five'), (33, 'Six'), (34, 'Seven'), (35, 'Eight'), (36, 'Nine')
+        ),
+        n_teams as (
+            select ceil(count(1) / 5.0)::integer as total
+            from people
+            where preference = 'R' and team_id is null
+        ),
+        last_letter as (
+            select max(coalesce(symbol, '@')) as l
+            from teams
+        ),
+        new_teams as (
+            select generate_series(1, total) as r, ascii(l) as c, l
+            from n_teams, last_letter
+        ),
+        tmp as (
+            select
+                left(md5(random()::text),8) as team_id,
+                chr(case when c + r <= 90 then c + r when c + r <= 100 then c + r - 43 else c + r - 4 end) as symbol,
+                r, l
+            from new_teams
+        )
+    insert into teams(team_id, name, symbol)
+    select team_id, 'Team ' || coalesce(name) as name, symbol
+    from tmp
+    left join team_names on r = o - (ascii(l) - 64)
     returning *;
 EOL
     ];
