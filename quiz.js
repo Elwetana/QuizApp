@@ -4,12 +4,15 @@
    * Constants and lightweight enums
    */
   const POLL_MS = 60000;
-  const CMDS = /** @type {const} */ ({ STATUS: 'status', GUESS: 'guess', RENAME: 'rename', ROUND: 'round', DEFINE: 'define', RESET: 'reset', PEOPLE: 'people', MAKE_TEAMS: 'make_teams' });
+  const CMDS = /** @type {const} */ ({ STATUS: 'status', GUESS: 'guess', RENAME: 'rename', ROUND: 'round', DEFINE: 'define', RESET: 'reset', PEOPLE: 'people', MAKE_TEAMS: 'make_teams', GET_PEOPLE: 'get_people', SET_STATUS: 'set_status', MOVE_PERSON: 'move_person' });
   const REASONS = /** @type {const} */ ({ COOLDOWN: 'cooldown_active', NO_LETTER: 'no_letter', NO_ACTIVE: 'no_active', NOT_ACCEPTED: 'not_accepted' });
   const SELECTORS = /** @type {const} */ ({
     tabsButtons: '#tabs button',
     tab: '.tab',
     adminTab: '#adminTab',
+    teamsTab: '#teamsTab',
+    helpTabBtn: '#tabs button[data-tab="help"]',
+    helpSection: '#help',
     guessTabBtn: '#tabs button[data-tab="guess"]',
     guessSection: '#guess',
     historyTabBtn: '#tabs button[data-tab="history"]',
@@ -22,11 +25,15 @@
     progressSummary: '#progressSummary',
     adminTeams: '#adminTeams',
     roundResult: '#roundResult',
+    teamsResult: '#teamsResult',
     defineFile: '#defineFile',
     defineBtn: '#defineBtn',
     peopleFile: '#peopleFile',
     peopleBtn: '#peopleBtn',
     makeTeamsBtn: '#makeTeamsBtn',
+    status0Btn: '#status0Btn',
+    status1Btn: '#status1Btn',
+    status4Btn: '#status4Btn',
     openMaster: '#openMaster',
     startRound: '#startRound',
     finishRound: '#finishRound',
@@ -275,6 +282,51 @@
   // Countdown state
   let countdownTimer = null;
   let serverSkewMs = 0;
+  // Team management
+  let selectedTargetTeam = null;
+
+  function updateTeamSelection() {
+    // Update visual indication of selected team
+    document.querySelectorAll('.team-selector').forEach(link => {
+      const isSelected = link.dataset.teamId === selectedTargetTeam;
+      link.classList.toggle('team-selected', isSelected);
+    });
+    
+    // Update select team buttons
+    document.querySelectorAll('.select-team-btn').forEach(btn => {
+      const isSelected = btn.dataset.teamId === selectedTargetTeam;
+      btn.classList.toggle('selected', isSelected);
+      btn.innerHTML = isSelected ? '☑' : '☐';
+    });
+  }
+
+  function addSelectTeamButton(teamRow, teamId) {
+    // Remove existing button if any
+    removeSelectTeamButton(teamRow);
+    
+    const selectBtn = document.createElement('button');
+    selectBtn.className = 'select-team-btn';
+    selectBtn.dataset.teamId = teamId || null;
+    selectBtn.innerHTML = '☐'; // Empty square
+    
+    selectBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent team row click
+      selectedTargetTeam = teamId || null;
+      updateTeamSelection();
+    });
+    
+    // Add button to the right side of team info
+    const teamInfo = teamRow.querySelector('.team-info');
+    const teamRight = teamInfo.querySelector('.team-right');
+    teamRight.appendChild(selectBtn);
+  }
+
+  function removeSelectTeamButton(teamRow) {
+    const existingBtn = teamRow.querySelector('.select-team-btn');
+    if (existingBtn) {
+      existingBtn.remove();
+    }
+  }
 
   function setSelectedRound(r) {
     selectedRound = Number(r);
@@ -460,43 +512,206 @@
     mount('roundsFuture', mkList(byActive['0']));
   }
 
-  function renderAdminTeams(data) {
+  function renderAdminTeams(statusData, peopleData) {
     const mount = document.querySelector(SELECTORS.adminTeams);
     if (!mount) return;
     mount.replaceChildren();
-    const rows = Array.isArray(data.all_teams) ? data.all_teams : [];
+    let rows = Array.isArray(statusData.all_teams) ? [...statusData.all_teams] : [];
+    
+    // Remove admin team from the list
+    rows = rows.filter(team => team.team_id !== TEAM);
+    
+    // Add virtual "No team" entry if there are unassigned people
+    if (peopleData && peopleData.people && Array.isArray(peopleData.people)) {
+      const unassignedPeople = peopleData.people.filter(p => !p.team_id || p.team_id === '' || p.team_id === null);
+      if (unassignedPeople.length > 0) {
+        rows.push({
+          team_id: null,
+          name: 'No Team',
+          age_last_seen: null,
+          is_virtual: true
+        });
+      }
+    }
+    
     if (!rows.length) { mount.textContent = 'No teams.'; return; }
-    const table = document.createElement('table');
-    const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
-    ['Team ID', 'Name', 'Last seen (s)'].forEach((h) => { const th = document.createElement('th'); th.textContent = h; trh.appendChild(th); });
-    thead.appendChild(trh);
-    table.appendChild(thead);
-    const tbody = document.createElement('tbody');
+    
+    const container = document.createElement('div');
+    container.className = 'teams-container';
+    
     rows
       .slice()
       .sort((a,b)=>String(a.team_id).localeCompare(String(b.team_id)))
       .forEach(t => {
-        const tr = document.createElement('tr');
-        const idCell = document.createElement('td');
-        const a = document.createElement('a');
-        a.href = `quiz.php?team=${encodeURIComponent(String(t.team_id || '').toUpperCase())}`;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.textContent = String(t.team_id || '').toUpperCase();
-        idCell.appendChild(a);
-        const nameCell = document.createElement('td');
-        nameCell.textContent = String(t.name || '');
-        const ageCell = document.createElement('td');
-        const age = Number(t.age_last_seen);
-        ageCell.textContent = isFinite(age) ? Math.floor(age).toString() : '';
-        tr.appendChild(idCell);
-        tr.appendChild(nameCell);
-        tr.appendChild(ageCell);
-        tbody.appendChild(tr);
+        // Create team row
+        const teamRow = document.createElement('div');
+        teamRow.className = 'team-row';
+        
+        // Team info
+        const teamInfo = document.createElement('div');
+        teamInfo.className = 'team-info';
+        
+        const teamLeft = document.createElement('div');
+        
+        const teamId = document.createElement('a');
+        teamId.href = `quiz.php?team=${encodeURIComponent(String(t.team_id || TEAM).toUpperCase())}`;
+        teamId.target = '_blank';
+        teamId.rel = 'noopener noreferrer';
+        teamId.textContent = String(t.team_id || 'No Team').toUpperCase();
+        teamId.className = 'team-selector' + (t.is_virtual ? ' virtual-team' : '');
+        teamId.dataset.teamId = t.team_id || null;
+        
+        teamLeft.appendChild(teamId);
+        
+        const teamName = document.createElement('span');
+        teamName.textContent = String(t.name || '');
+        teamName.className = 'team-name';
+        teamLeft.appendChild(teamName);
+        
+        const teamRight = document.createElement('div');
+        teamRight.className = 'team-right';
+        if (t.is_virtual) {
+          teamRight.textContent = 'Unassigned people';
+        } else {
+          const age = Number(t.age_last_seen);
+          if (isFinite(age)) {
+            const minutes = Math.floor(age / 60);
+            const seconds = Math.floor(age % 60);
+            teamRight.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          } else {
+            teamRight.textContent = '--:--';
+          }
+        }
+        
+        teamInfo.appendChild(teamLeft);
+        teamInfo.appendChild(teamRight);
+        teamRow.appendChild(teamInfo);
+        
+        // Add select team button to every team row
+        addSelectTeamButton(teamRow, t.team_id);
+        
+        // Create expandable members section
+        const membersSection = document.createElement('div');
+        membersSection.className = 'team-members';
+        membersSection.style.display = 'none';
+        
+        // Get team members
+        let teamPeople = [];
+        if (peopleData && peopleData.people && Array.isArray(peopleData.people)) {
+          teamPeople = peopleData.people.filter(p => p.team_id === t.team_id);
+        }
+        
+        if (teamPeople.length > 0) {
+          const membersTitle = document.createElement('h4');
+          membersTitle.textContent = `Team Members (${teamPeople.length})`;
+          membersTitle.className = 'members-title' + (t.is_virtual ? ' virtual-title' : '');
+          membersSection.appendChild(membersTitle);
+          
+          const membersTable = document.createElement('table');
+          membersTable.className = 'members-table';
+          
+          const thead = document.createElement('thead');
+          const headerRow = document.createElement('tr');
+          ['Select', 'Name'].forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            th.className = 'table-header';
+            headerRow.appendChild(th);
+          });
+          thead.appendChild(headerRow);
+          membersTable.appendChild(thead);
+          
+          const tbody = document.createElement('tbody');
+          teamPeople.forEach(person => {
+            const tr = document.createElement('tr');
+            tr.className = 'member-row';
+            tr.style.cursor = 'pointer';
+            
+            const selectCell = document.createElement('td');
+            const radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = `person-${t.team_id || 'null'}`;
+            radio.value = person.people_id;
+            radio.className = 'person-radio';
+            selectCell.appendChild(radio);
+            selectCell.className = 'select-cell';
+            
+            const nameCell = document.createElement('td');
+            nameCell.textContent = person.name || 'Unknown';
+            nameCell.className = 'name-cell';
+            
+            // Make entire row clickable to select radio button
+            tr.addEventListener('click', (e) => {
+              e.stopPropagation(); // Prevent team row click
+              radio.checked = true;
+            });
+            
+            tr.appendChild(selectCell);
+            tr.appendChild(nameCell);
+            tbody.appendChild(tr);
+          });
+          membersTable.appendChild(tbody);
+          membersSection.appendChild(membersTable);
+          
+          // Add move button
+          const moveButton = document.createElement('button');
+          moveButton.textContent = 'Move Person';
+          moveButton.className = 'move-person-btn';
+          moveButton.addEventListener('click', async () => {
+            const selectedRadio = membersTable.querySelector('input[name="person-' + (t.team_id || 'null') + '"]:checked');
+            if (!selectedRadio) {
+              alert('Please select a person to move');
+              return;
+            }
+            
+            if (!selectedTargetTeam) {
+              alert('Please Ctrl+click on a team to select it as the target');
+              return;
+            }
+            
+            const confirmMessage = `Move ${selectedRadio.value} to team ${selectedTargetTeam}?`;
+            if (!confirm(confirmMessage)) return;
+            
+            try {
+              const response = await fetch(API(CMDS.MOVE_PERSON, { 
+                person: selectedRadio.value, 
+                new_team: selectedTargetTeam 
+              }));
+              const result = await response.json();
+              
+              if (result.ok) {
+                alert('Person moved successfully');
+                fetchStatus();
+              } else {
+                alert('Failed to move person');
+              }
+            } catch (error) {
+              alert('Error: ' + error.message);
+            }
+          });
+          membersSection.appendChild(moveButton);
+        } else {
+          const noMembers = document.createElement('p');
+          noMembers.textContent = t.is_virtual ? 'All people are assigned to teams' : 'No members assigned to this team';
+          noMembers.className = 'no-members';
+          membersSection.appendChild(noMembers);
+        }
+        
+        // Toggle functionality - only when clicking team name or team info area
+        teamInfo.addEventListener('click', (e) => {
+          // Don't toggle if clicking on the team link, radio buttons, move button, or select team button
+          if (e.target.tagName === 'A' || e.target.type === 'radio' || e.target.className === 'move-person-btn' || e.target.className === 'select-team-btn') return;
+          
+          const isExpanded = membersSection.style.display !== 'none';
+          membersSection.style.display = isExpanded ? 'none' : 'block';
+          teamRow.classList.toggle('team-expanded', !isExpanded);
+        });
+        
+        teamRow.appendChild(membersSection);
+        container.appendChild(teamRow);
       });
-    table.appendChild(tbody);
-    mount.appendChild(table);
+    
+    mount.appendChild(container);
   }
 
   function renderQuestions(data) {
@@ -861,6 +1076,18 @@
     }
   }
 
+  async function fetchPeople() {
+    if (!isAdmin) return null;
+    try {
+      const resp = await fetch(API(CMDS.GET_PEOPLE));
+      const data = await resp.json();
+      return data;
+    } catch (e) {
+      console.error('Failed to fetch people data:', e);
+      return null;
+    }
+  }
+
   async function fetchStatus() {
     try {
       // Preserve current inline answer (if any) before re-rendering
@@ -871,11 +1098,19 @@
 
       isAdmin = toBool(data.team?.is_admin);
       document.querySelector(SELECTORS.adminTab).classList.toggle('hidden', !isAdmin);
+      document.querySelector(SELECTORS.teamsTab).classList.toggle('hidden', !isAdmin);
+      
       // Hide legacy Guess tab/section now that answering is inline
       const guessBtn = document.querySelector(SELECTORS.guessTabBtn);
       const guessSection = document.querySelector(SELECTORS.guessSection);
       if (guessBtn) guessBtn.classList.add('hidden');
       if (guessSection) guessSection.classList.add('hidden');
+
+      // Hide Help tab for admin teams
+      const helpBtn = document.querySelector(SELECTORS.helpTabBtn);
+      const helpSection = document.querySelector(SELECTORS.helpSection);
+      if (helpBtn) helpBtn.classList.toggle('hidden', isAdmin);
+      if (helpSection) helpSection.classList.toggle('hidden', isAdmin);
 
       // Hide History for admin teams
       const historyBtn = document.querySelector(SELECTORS.historyTabBtn);
@@ -907,6 +1142,13 @@
       }
 
       lastStatus = data;
+      
+      // For admin teams, fetch people data separately
+      let peopleData = null;
+      if (isAdmin) {
+        peopleData = await fetchPeople();
+      }
+      
       // Update server time skew for countdown accuracy
       updateServerSkew(data);
       // Batch DOM updates in a frame to reduce layout thrash
@@ -924,7 +1166,7 @@
           renderRoundProgressFilter(data);
           renderRoundProgress(data);
           renderRoundProgressSummary(data);
-          renderAdminTeams(data);
+          renderAdminTeams(data, peopleData);
         }
         const foot = document.querySelector(SELECTORS.foot);
         if (foot) foot.textContent = `Team ${TEAM}`;
@@ -1028,11 +1270,11 @@
   }
 
   async function makeRandomTeams() {
-    const resEl = $('#roundResult');
+    const resEl = document.querySelector(SELECTORS.teamsResult);
     const conf = (prompt('Type MAKE TEAMS to confirm creating random teams from people data:') || '').trim().toUpperCase();
     if (conf !== 'MAKE TEAMS') { resEl.textContent = 'Make teams cancelled.'; return; }
     resEl.textContent = 'Creating teams...';
-    const btn = $('#makeTeamsBtn');
+    const btn = document.querySelector(SELECTORS.makeTeamsBtn);
     if (btn) btn.disabled = true;
     try {
       const resp = await fetch(API(CMDS.MAKE_TEAMS), { method: 'GET' });
@@ -1049,6 +1291,23 @@
     } catch (e) {
       resEl.textContent = 'Network error.';
     } finally { if (btn) btn.disabled = false; }
+  }
+
+  async function setStatus(status) {
+    const resEl = document.querySelector(SELECTORS.teamsResult);
+    resEl.textContent = `Setting status to ${status}...`;
+    try {
+      const resp = await fetch(API(CMDS.SET_STATUS, { status }));
+      const data = await resp.json();
+      if (data.ok) {
+        resEl.textContent = `Status set to ${status}.`;
+      } else {
+        resEl.textContent = 'Failed to set status.';
+      }
+      fetchStatus();
+    } catch (e) {
+      resEl.textContent = 'Network error.';
+    }
   }
 
   function bindDefine() {
@@ -1115,6 +1374,9 @@
   $('#closeRound') && $('#closeRound').addEventListener('click', () => setActive(0));
   $('#resetBtn') && $('#resetBtn').addEventListener('click', resetAll);
   $('#makeTeamsBtn') && $('#makeTeamsBtn').addEventListener('click', makeRandomTeams);
+  $('#status0Btn') && $('#status0Btn').addEventListener('click', () => setStatus(0));
+  $('#status1Btn') && $('#status1Btn').addEventListener('click', () => setStatus(1));
+  $('#status4Btn') && $('#status4Btn').addEventListener('click', () => setStatus(4));
   $('#defineBtn') && $('#defineBtn').addEventListener('click', () => { const f = $('#defineFile'); if (f) { f.click(); } });
   $('#peopleBtn') && $('#peopleBtn').addEventListener('click', () => { const f = $('#peopleFile'); if (f) { f.click(); } });
   bindDefine();

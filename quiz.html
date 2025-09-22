@@ -20,6 +20,7 @@
         <button data-tab="history">History</button>
         <button data-tab="help">Help</button>
         <button data-tab="round" id="adminTab" class="hidden">Admin</button>
+        <button data-tab="teams" id="teamsTab" class="hidden">Teams</button>
     </nav>
 </header>
 
@@ -112,7 +113,6 @@
                 <input type="file" id="defineFile" accept="application/json,.json" class="hidden" />
                 <button id="peopleBtn">People&hellip;</button>
                 <input type="file" id="peopleFile" accept="application/json,.json" class="hidden" />
-                <button id="makeTeamsBtn">Make Teams</button>
             </div>
             <div class="row admin-actions">
                 <button id="openMaster" class="primary">Quiz Master</button>
@@ -128,9 +128,22 @@
             <h2>Per Question Summary</h2>
             <div id="progressSummary"></div>
         </div>
+    </section>
+
+    <section id="teams" class="tab">
         <div class="card">
             <h2>Teams</h2>
             <div id="adminTeams"></div>
+        </div>
+        <div class="card">
+            <h2>Team Management</h2>
+            <div class="row admin-actions">
+                <button id="makeTeamsBtn">Make Teams</button>
+                <button id="status0Btn">Status 0</button>
+                <button id="status1Btn">Status 1</button>
+                <button id="status4Btn">Status 4</button>
+            </div>
+            <div id="teamsResult" class="result"></div>
         </div>
     </section>
 </main>

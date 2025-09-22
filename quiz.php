@@ -795,6 +795,9 @@ function move_person()
 {
     $peopleId = get_param('person');
     $team = get_param('new_team');
+    if($team === 'null') {
+        $team = null;
+    }
     if(!$team) {
         respond_forbidden('target team id not provided');
     }

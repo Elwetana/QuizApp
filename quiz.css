@@ -94,3 +94,153 @@ button.primary { background: var(--accent); color: #052e13; border-color: #14532
 }
 
 @media (min-width: 700px) { main { max-width: 900px; margin: 0 auto; } }
+
+/* Team management styles */
+.select-cell {
+  padding: 8px;
+  text-align: center;
+}
+
+.person-radio {
+  margin: 0;
+}
+
+.move-person-btn {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.move-person-btn:hover {
+  background-color: #0056b3;
+}
+
+.team-selector {
+  transition: all 0.2s ease;
+}
+
+.team-selector.team-selected {
+  background-color: #007bff;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+/* Team rows */
+.team-row {
+  cursor: pointer;
+  padding: 10px;
+  border: 1px solid #ddd;
+  margin-bottom: 5px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.team-row.team-expanded {
+  /*background-color: #e9f4ff;*/
+}
+
+.team-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.team-selector {
+  font-weight: bold;
+  margin-right: 10px;
+  transition: all 0.2s ease;
+}
+
+.team-selector.virtual-team {
+  color: #ff6b6b;
+}
+
+.team-name {
+  color: #666;
+}
+
+.team-right {
+  display: flex;
+  font-size: 0.9em;
+  color: #888;
+}
+
+/* Team members section */
+.team-members {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+}
+
+.members-title {
+  margin: 0 0 10px 0;
+  font-size: 1em;
+}
+
+.members-title.virtual-title {
+  color: #ff6b6b;
+}
+
+.members-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table-header {
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+}
+
+.member-row {
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.2s ease;
+}
+
+.member-row:hover {
+  background-color: #002449;
+}
+
+.name-cell {
+  padding: 8px;
+}
+
+.no-members {
+  color: #888;
+  font-style: italic;
+}
+
+.select-team-btn {
+  margin-left: 10px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.select-team-btn:hover {
+  border-color: #007bff;
+  color: #007bff;
+}
+
+.select-team-btn.selected {
+  background-color: #007bff;
+  border-color: #007bff;
+  color: white;
+}
+
+.select-team-btn.selected:hover {
+  background-color: #0056b3;
+  border-color: #0056b3;
+}
