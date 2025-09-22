@@ -233,15 +233,15 @@
     }
     
     // With hints present, adjust based on hint content length
-    if (totalHintLength > 400) {
+    if (totalHintLength > 200) {
       // Two long hints or one very long hint - very conservative
       if (length > 256) return 'text-extremely-long';
       if (length > 128) return 'text-very-long';
       if (length > 64) return 'text-long';
       return '';
-    } else if (totalHintLength > 200) {
+    } else if (totalHintLength > 100) {
       // One long hint or two medium hints - conservative
-      if (length > 384) return 'text-extremely-long';
+      if (length > 280) return 'text-extremely-long';
       if (length > 192) return 'text-very-long';
       if (length > 96) return 'text-long';
       return '';
@@ -264,13 +264,13 @@
      let h1 = null, h2 = null;
      if (q.hint1) { 
        h1 = document.createElement('div'); 
-       h1.className = 'hint ' + getTextSizeClass(q.hint1, '', ''); // Hints use their own sizing
+       h1.className = 'hint ' + getTextSizeClass(q.hint1, q.question, ''); // Hints use their own sizing
        h1.textContent = 'Hint 1: ' + q.hint1; 
        body.appendChild(h1); 
      }
      if (q.hint2) { 
        h2 = document.createElement('div'); 
-       h2.className = 'hint ' + getTextSizeClass(q.hint2, '', ''); // Hints use their own sizing
+       h2.className = 'hint ' + getTextSizeClass(q.hint2, q.question, ''); // Hints use their own sizing
        h2.textContent = 'Hint 2: ' + q.hint2; 
        body.appendChild(h2); 
      }

@@ -1,555 +1,337 @@
-/* Registration system for Pub Quiz matchmaking */
-(function () {
-    'use strict';
+// Registration interface for pub quiz matchmaking
+// Handles status-based UI and API communication
 
-    // Constants
-    const POLL_MS = 10000; // Poll every 10 seconds
-    const API_BASE = 'register.php';
-    
-    // Phase constants
-    const PHASES = {
-        INTEREST: 1,      // Register interest
-        PREFERENCE: 2,     // Choose random vs organized
-        FORMATION: 3,      // Team formation
-        ASSIGNED: 4        // Teams are formed
-    };
-
-    // State
-    let currentStatus = 0;
-    let currentPerson = null;
-    let searchTimeout = null;
-    let pollInterval = null;
-
-    // DOM elements
-    const $ = (id) => document.getElementById(id);
-    const $$ = (selector) => document.querySelectorAll(selector);
-
-    // Utility functions
-    function showPhase(phase) {
-        $$('.phase').forEach(el => el.classList.add('hidden'));
-        $(`phase${phase}`).classList.remove('hidden');
-    }
-
-    function showLoading(text = 'Loading...') {
-        $('loadingText').textContent = text;
-        showPhase('loading');
-    }
-
-    function showError(message) {
-        $('errorMessage').textContent = message;
-        showPhase('error');
-    }
-
-    function updateStatusIndicator(status) {
-        const indicator = $('status');
-        if (!indicator) return;
-
-        indicator.textContent = `Status: ${status}`;
-        indicator.className = 'status-indicator';
+class QuizRegistration {
+    constructor() {
+        this.peopleId = this.getPeopleIdFromUrl();
+        this.currentStatus = null;
+        this.personData = null;
         
-        if (status === PHASES.ASSIGNED) {
-            indicator.classList.add('active');
-        } else if (status > 0) {
-            indicator.classList.add('waiting');
+        this.init();
+    }
+
+    init() {
+        if (!this.peopleId) {
+            this.showError('Invalid people ID. Please check your registration link.');
+            return;
         }
+
+        this.bindEvents();
+        this.loadStatus();
     }
 
-    // API functions
-    async function apiCall(cmd, params = {}, method = 'GET') {
-        const url = new URL(API_BASE, window.location.href);
-        url.searchParams.set('cmd', cmd);
-        
-        Object.entries(params).forEach(([key, value]) => {
-            url.searchParams.set(key, value);
+    getPeopleIdFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get('people_id');
+    }
+
+    bindEvents() {
+        document.getElementById('register-btn')?.addEventListener('click', () => {
+            this.registerInterest();
         });
 
-        const options = {
-            method,
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
+        document.getElementById('retry-btn')?.addEventListener('click', () => {
+            this.loadStatus();
+        });
+
+        // Fullscreen symbol events
+        document.getElementById('symbol-fullscreen')?.addEventListener('click', () => {
+            this.hideFullscreenSymbol();
+        });
+
+        // Allow clicking on the image to exit fullscreen
+        document.getElementById('fullscreen-symbol')?.addEventListener('click', (e) => {
+            // Don't stop propagation - let the click bubble up to close fullscreen
+            //this.hideFullscreenSymbol();
+        });
+
+        // Keyboard support for fullscreen symbol
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.hideFullscreenSymbol();
             }
-        };
+        });
 
-        if (method === 'POST') {
-            const formData = new URLSearchParams();
-            Object.entries(params).forEach(([key, value]) => {
-                formData.append(key, value);
-            });
-            options.body = formData;
-        }
+        // Handle fullscreen change events
+        document.addEventListener('fullscreenchange', () => this.handleFullscreenChange());
+        document.addEventListener('webkitfullscreenchange', () => this.handleFullscreenChange());
+        document.addEventListener('mozfullscreenchange', () => this.handleFullscreenChange());
+        document.addEventListener('MSFullscreenChange', () => this.handleFullscreenChange());
+    }
 
+    async loadStatus() {
+        this.showLoading();
+        
         try {
-            const response = await fetch(url.toString(), options);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return await response.json();
+            const response = await this.apiCall('person_status');
+            this.personData = response.person;
+            this.currentStatus = response.status[0]?.status || 0;
+            
+            this.updateUI();
         } catch (error) {
-            console.error('API call failed:', error);
+            console.error('Failed to load status:', error);
+            this.showError('Failed to load registration status. Please try again.');
+        }
+    }
+
+    async registerInterest() {
+        this.showLoading();
+        
+        try {
+            const response = await this.apiCall('interest');
+            if (response.ok) {
+                // Refresh status after successful registration
+                await this.loadStatus();
+            } else {
+                throw new Error('Registration failed');
+            }
+        } catch (error) {
+            console.error('Failed to register interest:', error);
+            this.showError('Failed to register interest. Please try again.');
+        }
+    }
+
+    async loadTeamInfo() {
+        try {
+            const response = await this.apiCall('get_team');
+            return response;
+        } catch (error) {
+            console.error('Failed to load team info:', error);
             throw error;
         }
     }
 
-    async function getTeamStatus() {
-        return await apiCall('team_status');
-    }
+    updateUI() {
+        this.hideAllPanels();
 
-    async function registerInterest(peopleId) {
-        return await apiCall('register_interest', {}, 'POST');
-    }
-
-    async function setPreference(peopleId, preference) {
-        return await apiCall('set_preference', { 
-            preference: preference 
-        }, 'POST');
-    }
-
-    async function joinTeam(peopleId, targetPersonId) {
-        return await apiCall('join_team', { 
-            target_person_id: targetPersonId 
-        }, 'POST');
-    }
-
-    async function createTeam(peopleId) {
-        return await apiCall('create_team', {}, 'POST');
-    }
-
-    async function leaveTeam(peopleId) {
-        return await apiCall('leave_team', {}, 'POST');
-    }
-
-    async function getTeamMembers(peopleId) {
-        return await apiCall('get_team_members');
-    }
-
-    async function getTeamMembersList(peopleId) {
-        return await apiCall('get_team_members_list');
-    }
-
-    async function getTeamSymbol(teamId) {
-        return await apiCall('get_team_symbol', { team_id: teamId });
-    }
-
-    async function findPerson(peopleId, search) {
-        return await apiCall('find_person', { 
-            search: search 
-        });
-    }
-
-    // Phase handlers
-    function handlePhase1() {
-        showPhase(1);
-        
-        $('registerInterest').onclick = async () => {
-            if (!currentPerson) {
-                showError('No people ID available. Please refresh the page.');
-                return;
-            }
-
-            try {
-                showLoading('Registering interest...');
-                const result = await registerInterest(currentPerson);
-                
-                if (result.ok) {
-                    await updateStatus();
-                } else {
-                    showError(result.error || 'Failed to register interest');
-                }
-            } catch (error) {
-                showError('Network error. Please try again.');
-            }
-        };
-    }
-
-    function handlePhase2() {
-        showPhase(2);
-        
-        $('preferRandom').onclick = async () => {
-            await setPreferenceAndUpdate('R');
-        };
-        
-        $('preferOrganize').onclick = async () => {
-            await setPreferenceAndUpdate('O');
-        };
-    }
-
-    async function setPreferenceAndUpdate(preference) {
-        if (!currentPerson) {
-            showError('No people ID available. Please refresh the page.');
-            return;
+        switch (this.currentStatus) {
+            case 0:
+                this.showStatus0();
+                break;
+            case 1:
+                this.showStatus1();
+                break;
+            case 4:
+                this.showStatus4();
+                break;
+            default:
+                this.showError(`Unknown status: ${this.currentStatus}`);
         }
+    }
 
+    showStatus0() {
+        document.getElementById('status-0').classList.remove('hidden');
+    }
+
+    showStatus1() {
+        // Check if person already registered
+        if (this.personData?.preference === 'R') {
+            this.showMessage('You have already registered for the quiz. Teams will be formed soon!');
+        } else {
+            document.getElementById('status-1').classList.remove('hidden');
+        }
+    }
+
+    async showStatus4() {
         try {
-            showLoading('Setting preference...');
-            const result = await setPreference(currentPerson, preference);
-            
-            if (result.ok) {
-                await updateStatus();
-            } else {
-                showError(result.error || 'Failed to set preference');
-            }
+            const teamInfo = await this.loadTeamInfo();
+            this.displayTeamInfo(teamInfo);
+            document.getElementById('status-4').classList.remove('hidden');
         } catch (error) {
-            showError('Network error. Please try again.');
+            this.showError('Failed to load team information. Please try again.');
         }
     }
 
-    function handlePhase3() {
-        showPhase(3);
-        setupTeamFormation();
-    }
-
-    function setupTeamFormation() {
-        // Search functionality
-        const searchInput = $('personSearch');
-        const searchResults = $('searchResults');
+    displayTeamInfo(teamInfo) {
+        const { team, teammates, symbol } = teamInfo;
         
-        searchInput.oninput = () => {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(async () => {
-                const query = searchInput.value.trim();
-                if (query.length < 2) {
-                    searchResults.innerHTML = '';
-                    return;
-                }
-
-                try {
-                    const result = await findPerson(currentPerson, query);
-                    if (result.ok) {
-                        displaySearchResults(result.people);
-                    }
-                } catch (error) {
-                    console.error('Search failed:', error);
-                }
-            }, 300);
-        };
-
-        // Team actions
-        $('createTeam').onclick = async () => {
-            if (!currentPerson) {
-                showError('No people ID available. Please refresh the page.');
-                return;
-            }
-
-            try {
-                showLoading('Creating team...');
-                const result = await createTeam(currentPerson);
-                
-                if (result.ok) {
-                    await updateStatus();
-                } else {
-                    showError(result.error || 'Failed to create team');
-                }
-            } catch (error) {
-                showError('Network error. Please try again.');
-            }
-        };
-
-        $('leaveTeam').onclick = async () => {
-            if (!currentPerson) {
-                showError('No people ID available. Please refresh the page.');
-                return;
-            }
-
-            try {
-                showLoading('Leaving team...');
-                const result = await leaveTeam(currentPerson);
-                
-                if (result.ok) {
-                    await updateStatus();
-                } else {
-                    showError(result.error || 'Failed to leave team');
-                }
-            } catch (error) {
-                showError('Network error. Please try again.');
-            }
-        };
-
-        // Load current team status
-        loadCurrentTeam();
-    }
-
-    function displaySearchResults(people) {
-        const searchResults = $('searchResults');
-        searchResults.innerHTML = '';
-
-        if (!people || people.length === 0) {
-            searchResults.innerHTML = '<div class="search-result">No people found</div>';
-            return;
+        // Update team name
+        document.getElementById('team-name').textContent = team.name;
+        
+        // Update team symbol - handle both text and base64 SVG
+        const teamSymbolElement = document.getElementById('team-symbol');
+        if (symbol && symbol.startsWith('data:image/svg+xml;base64,')) {
+            // Check for separate symbol property with base64 SVG
+            teamSymbolElement.innerHTML = `<img src="${symbol}" alt="Team Symbol" style="max-width: 100%; height: auto;" />`;
+            teamSymbolElement.style.cursor = 'pointer';
+            teamSymbolElement.addEventListener('click', () => this.showFullscreenSymbol(symbol));
+        } else {
+            // It's a text symbol (from team.symbol)
+            teamSymbolElement.textContent = team.symbol || '?';
+            teamSymbolElement.style.cursor = 'default';
         }
-
-        people.forEach(person => {
-            const result = document.createElement('div');
-            result.className = 'search-result';
-            result.innerHTML = `
-                <div class="name">${person.name || 'Unknown'}</div>
-                <div class="login">${person.login || ''}</div>
-                <div class="team">${person.team_id ? 'In team' : 'Available'}</div>
+        
+        // Update team members
+        const membersList = document.getElementById('team-members');
+        if (teammates && teammates.length > 0) {
+            membersList.innerHTML = `
+                <h3>Team Members</h3>
+                <ul>
+                    ${teammates.map(member => `<li>${member.name || member.login || 'Unknown'}</li>`).join('')}
+                </ul>
             `;
-            
-            result.onclick = async () => {
-                if (person.team_id) {
-                    await joinTeamByPerson(person.people_id);
-                } else {
-                    showError('This person is not in a team yet');
-                }
-            };
-            
-            searchResults.appendChild(result);
+        } else {
+            membersList.innerHTML = '<p>No team members found.</p>';
+        }
+        
+        // Update quiz link
+        const quizLink = document.getElementById('quiz-link');
+        quizLink.href = `quiz.php?team=${team.team_id}`;
+        quizLink.textContent = 'Join Quiz';
+    }
+
+    showMessage(message) {
+        this.hideAllPanels();
+        
+        // Create a temporary message panel
+        const messagePanel = document.createElement('div');
+        messagePanel.className = 'status-panel';
+        messagePanel.innerHTML = `
+            <div class="message">
+                <h2>Information</h2>
+                <p>${message}</p>
+            </div>
+        `;
+        
+        document.querySelector('main').appendChild(messagePanel);
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            messagePanel.remove();
+            this.loadStatus();
+        }, 5000);
+    }
+
+    showLoading() {
+        this.hideAllPanels();
+        document.getElementById('loading').classList.remove('hidden');
+    }
+
+    showError(message) {
+        this.hideAllPanels();
+        document.getElementById('error-message').textContent = message;
+        document.getElementById('error').classList.remove('hidden');
+    }
+
+    hideAllPanels() {
+        const panels = document.querySelectorAll('.status-panel');
+        panels.forEach(panel => panel.classList.add('hidden'));
+    }
+
+    async showFullscreenSymbol(symbolData) {
+        const fullscreenElement = document.getElementById('symbol-fullscreen');
+        const symbolImage = document.getElementById('fullscreen-symbol');
+        
+        symbolImage.src = symbolData;
+        fullscreenElement.classList.remove('hidden');
+        
+        // Wait for image to load, then check if rotation is needed
+        symbolImage.onload = () => {
+            this.adjustSymbolOrientation(symbolImage);
+        };
+        
+        // Try to enter true fullscreen mode
+        try {
+            if (fullscreenElement.requestFullscreen) {
+                await fullscreenElement.requestFullscreen();
+            } else if (fullscreenElement.webkitRequestFullscreen) {
+                await fullscreenElement.webkitRequestFullscreen();
+            } else if (fullscreenElement.mozRequestFullScreen) {
+                await fullscreenElement.mozRequestFullScreen();
+            } else if (fullscreenElement.msRequestFullscreen) {
+                await fullscreenElement.msRequestFullscreen();
+            }
+        } catch (error) {
+            console.log('Fullscreen not supported or blocked:', error);
+            // Fallback to overlay mode if fullscreen fails
+        }
+    }
+
+    adjustSymbolOrientation(img) {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const imgAspectRatio = img.naturalWidth / img.naturalHeight;
+        const screenAspectRatio = window.innerWidth / window.innerHeight;
+        
+        // If screen is portrait and image is landscape (or vice versa), rotate
+        const shouldRotate = (isPortrait && imgAspectRatio > 1) || (!isPortrait && imgAspectRatio < 1);
+        
+        if (shouldRotate) {
+            img.style.transform = 'rotate(90deg)';
+            img.style.width = '100vh';
+            img.style.height = '100vw';
+        } else {
+            img.style.transform = 'rotate(0deg)';
+            img.style.width = '100vw';
+            img.style.height = '100vh';
+        }
+    }
+
+    hideFullscreenSymbol() {
+        const fullscreenElement = document.getElementById('symbol-fullscreen');
+        
+        // Exit fullscreen if we're in it
+        if (document.fullscreenElement || document.webkitFullscreenElement || 
+            document.mozFullScreenElement || document.msFullscreenElement) {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        }
+        
+        fullscreenElement.classList.add('hidden');
+    }
+
+    handleFullscreenChange() {
+        const fullscreenElement = document.getElementById('symbol-fullscreen');
+        const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                               document.mozFullScreenElement || document.msFullscreenElement);
+        
+        if (!isFullscreen && !fullscreenElement.classList.contains('hidden')) {
+            // User exited fullscreen using browser controls
+            fullscreenElement.classList.add('hidden');
+        }
+    }
+
+    async apiCall(command) {
+        const url = new URL('quiz.php', window.location.origin);
+        url.searchParams.set('cmd', command);
+        url.searchParams.set('people_id', this.peopleId);
+
+        const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
         });
-    }
 
-    async function joinTeamByPerson(targetPersonId) {
-        if (!currentPerson) {
-            showError('No people ID available. Please refresh the page.');
-            return;
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        try {
-            showLoading('Joining team...');
-            const result = await joinTeam(currentPerson, targetPersonId);
-            
-            if (result.ok) {
-                await updateStatus();
-            } else {
-                showError(result.error || 'Failed to join team');
-            }
-        } catch (error) {
-            showError('Network error. Please try again.');
-        }
+        return await response.json();
     }
+}
 
-    async function loadCurrentTeam() {
-        if (!currentPerson) return;
+// Initialize the registration interface when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new QuizRegistration();
+});
 
-        try {
-            const result = await getTeamMembers(currentPerson);
-            if (result.ok && result.person) {
-                const person = result.person;
-                const currentTeam = $('currentTeam');
-                const teamMembers = $('teamMembers');
-                const teamActions = $('teamActions');
-
-                if (person.team_id) {
-                    // Person is in a team
-                    currentTeam.classList.remove('hidden');
-                    teamActions.classList.add('hidden');
-                    
-                    // Load team symbol for current team display
-                    try {
-                        const symbolResult = await getTeamSymbol(person.team_id);
-                        let symbolDisplay = '?';
-                        if (symbolResult.ok && symbolResult.svg) {
-                            symbolDisplay = `<img src="data:image/svg+xml;base64,${symbolResult.svg}" alt="Team Symbol" style="width: 100%; height: 100%; object-fit: contain;" />`;
-                        }
-                        
-                        teamMembers.innerHTML = `
-                            <div class="team-info">
-                                <div class="team-symbol">${symbolDisplay}</div>
-                                <div class="team-details">
-                                    <h3>${person.team_name || 'Team'}</h3>
-                                    <p>You are a member of this team</p>
-                                </div>
-                            </div>
-                        `;
-                    } catch (error) {
-                        console.error('Failed to load team symbol:', error);
-                        teamMembers.innerHTML = `
-                            <div class="team-info">
-                                <div class="team-symbol">?</div>
-                                <div class="team-details">
-                                    <h3>${person.team_name || 'Team'}</h3>
-                                    <p>You are a member of this team</p>
-                                </div>
-                            </div>
-                        `;
-                    }
-                } else {
-                    // Person is not in a team
-                    currentTeam.classList.add('hidden');
-                    teamActions.classList.remove('hidden');
-                }
-            }
-        } catch (error) {
-            console.error('Failed to load team status:', error);
-        }
+// Handle page visibility changes to refresh status
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && window.quizRegistration) {
+        window.quizRegistration.loadStatus();
     }
+});
 
-    function handlePhase4() {
-        showPhase(4);
-        loadTeamInfo();
+// Make the registration instance globally accessible for debugging
+window.addEventListener('load', () => {
+    if (window.quizRegistration) {
+        window.quizRegistration = window.quizRegistration;
     }
-
-    async function loadTeamInfo() {
-        if (!currentPerson) return;
-
-        try {
-            const result = await getTeamMembers(currentPerson);
-            if (result.ok && result.person) {
-                const person = result.person;
-                const teamName = $('teamName');
-                const teamMembersList = $('teamMembersList');
-                const teamSymbol = $('teamSymbol');
-
-                if (person.team_id) {
-                    teamName.textContent = person.team_name || 'Your Team';
-                    
-                    // Get team symbol
-                    try {
-                        const symbolResult = await getTeamSymbol(person.team_id);
-                        if (symbolResult.ok && symbolResult.svg) {
-                            teamSymbol.innerHTML = `<img src="data:image/svg+xml;base64,${symbolResult.svg}" alt="Team Symbol" style="width: 100%; height: 100%; object-fit: contain;" />`;
-                        } else {
-                            teamSymbol.textContent = '?';
-                        }
-                    } catch (error) {
-                        console.error('Failed to load team symbol:', error);
-                        teamSymbol.textContent = '?';
-                    }
-                    
-                    // Load team members
-                    try {
-                        const membersResult = await getTeamMembersList(currentPerson);
-                        if (membersResult.ok && membersResult.members) {
-                            const members = membersResult.members;
-                            const membersHtml = members.map(member => 
-                                `<li>${member.name || 'Unknown'}</li>`
-                            ).join('');
-                            
-                            teamMembersList.innerHTML = `
-                                <ul class="team-members">
-                                    ${membersHtml}
-                                </ul>
-                            `;
-                        } else {
-                            teamMembersList.innerHTML = `
-                                <ul class="team-members">
-                                    <li>${person.name || 'You'}</li>
-                                </ul>
-                            `;
-                        }
-                    } catch (error) {
-                        console.error('Failed to load team members:', error);
-                        teamMembersList.innerHTML = `
-                            <ul class="team-members">
-                                <li>${person.name || 'You'}</li>
-                            </ul>
-                        `;
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Failed to load team info:', error);
-        }
-    }
-
-
-    // Main status update function
-    async function updateStatus() {
-        try {
-            const result = await getTeamStatus();
-            if (!result.ok) {
-                showError('Failed to get status');
-                return;
-            }
-
-            currentStatus = result.status;
-            updateStatusIndicator(currentStatus);
-
-            // Handle different phases
-            switch (currentStatus) {
-                case PHASES.INTEREST:
-                    handlePhase1();
-                    break;
-                case PHASES.PREFERENCE:
-                    handlePhase2();
-                    break;
-                case PHASES.FORMATION:
-                    handlePhase3();
-                    break;
-                case PHASES.ASSIGNED:
-                    handlePhase4();
-                    break;
-                default:
-                    showError('Unknown status');
-            }
-        } catch (error) {
-            showError('Failed to connect to server');
-        }
-    }
-
-    // Event handlers
-    function setupEventHandlers() {
-        // Retry button
-        $('retryButton').onclick = () => {
-            updateStatus();
-        };
-
-        // Join game button
-        $('joinGame').onclick = () => {
-            if (currentPerson) {
-                // Redirect to quiz with team ID
-                const teamId = currentPerson.team_id;
-                if (teamId) {
-                    window.location.href = `quiz.php?team=${teamId}`;
-                } else {
-                    showError('No team assigned yet');
-                }
-            } else {
-                showError('No people ID available');
-            }
-        };
-    }
-
-    // Polling
-    function startPolling() {
-        if (pollInterval) {
-            clearInterval(pollInterval);
-        }
-        
-        pollInterval = setInterval(async () => {
-            try {
-                const result = await getTeamStatus();
-                if (result.ok && result.status !== currentStatus) {
-                    currentStatus = result.status;
-                    updateStatus();
-                }
-            } catch (error) {
-                console.error('Polling error:', error);
-            }
-        }, POLL_MS);
-    }
-
-    function stopPolling() {
-        if (pollInterval) {
-            clearInterval(pollInterval);
-            pollInterval = null;
-        }
-    }
-
-    // Initialize
-    function init() {
-        // Get people ID from URL or localStorage
-        const urlParams = new URLSearchParams(window.location.search);
-        const peopleId = urlParams.get('people_id') || localStorage.getItem('quiz_people_id');
-        
-        if (!peopleId) {
-            showError('No people ID provided. Please access this page through the proper link.');
-            return;
-        }
-
-        currentPerson = peopleId;
-        localStorage.setItem('quiz_people_id', peopleId);
-
-        setupEventHandlers();
-        updateStatus();
-        startPolling();
-    }
-
-    // Cleanup on page unload
-    window.addEventListener('beforeunload', () => {
-        stopPolling();
-    });
-
-    // Start the application
-    document.addEventListener('DOMContentLoaded', init);
-})();
+});

@@ -34,7 +34,7 @@ body {
 #present .panel > .qwrap { grid-row: 1 / -1; }
 #present .qwrap .body { min-height: 0; }
 #present .qwrap .title { font-size: clamp(28px, min(10cqh, 10cqw), 96px); font-weight: 800; margin-bottom: .5rem; }
-#present .qwrap .body { overflow: hidden; display: grid; align-content: start; justify-items: center; container-type: size; }
+#present .qwrap .body { overflow: hidden; display: grid; align-content: start; container-type: size; }
 /* Slightly smaller responsive text to ensure fit */
 #present .qwrap .text { width: 100%; text-align: left; font-size: clamp(20px, min(12cqh, 10cqw), 96px); line-height: 1.15; overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
 /* In presentation mode, keep hints same size as question text */
@@ -93,7 +93,7 @@ body {
 #present .qwrap.overlay-letter .title.image-overlay { position: absolute; top: .5rem; left: .75rem; z-index: 1; background: rgba(0,0,0,0.4); padding: .2rem .5rem; border-radius: .4rem; font-size: clamp(18px, min(9cqh, 8cqw), 80px); color: var(--text); }
 .qwrap .body .text { font-size: clamp(18px, min(10cqh, 8cqw), 80px); line-height: 1.2; font-weight: 100;}
 .qwrap .hint { font-size: 0.75em; }
-.qwrap .hint { color: var(--muted); margin-top: .25rem; }
+.qwrap .hint { color: var(--muted); margin-top: .25rem;}
 
 /* Grid view: promote hint within cell and downscale question text */
 #grid .qwrap.has-promote .hint.promote { color: var(--text); font-size: clamp(18px, min(9cqh, 8cqw), 80px); line-height: 1.2; }

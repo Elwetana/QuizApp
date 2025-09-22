@@ -8,6 +8,25 @@ $DB_NAME = getenv('PGDATABASE') ?: 'quiz';
 $DB_USER = getenv('PGUSER') ?: 'quiz_admin';
 $DB_PASS = getenv('PGPASSWORD') ?: '';
 
+enum Commands: string
+{
+    case NoCommand = 'no_command';
+    case Status = 'status';
+    case Guess = 'guess';
+    case Rename = 'rename';
+    case Round = 'round';
+    case Define = 'define';
+    case Reset = 'reset';
+    case People = 'people';
+    case MakeTeams = 'make_teams';
+    case GetPeople = 'get_people';
+    case MovePerson = 'move_person';
+    case PersonStatus = 'person_status';
+    case Interest = 'interest';
+    case GetTeam = 'get_team';
+    case SetStatus = 'set_status';
+}
+
 enum FetchType: int
 {
     case FetchTeam = 0;
@@ -35,6 +54,10 @@ enum FetchType: int
     case MovePersonToTeam = 22;
     case RegisterInterest = 23;
     case FetchPersonTeam = 24;
+    case FetchPerson = 25;
+    case FetchTeamMembers = 26;
+    case FetchTeamStatus = 27;
+    case SetTeamsStatus = 28;
 }
 
 function pg(): ?PDO
@@ -451,6 +474,49 @@ EOL,
     from tmp
     left join team_names on r = o - (ascii(l) - 64)
     returning *;
+EOL,
+        FetchType::FetchPeople->value => /** @lang PostgreSQL */ <<<EOL
+    select people_id, name, login, primary_group, secondary_group, preference, team_id, db_id
+    from people;
+EOL,
+        FetchType::MovePersonToTeam->value => /** @lang PostgreSQL */ <<<EOL
+    update people
+    set team_id = :t
+    where people_id = :l
+    returning true;
+EOL,
+        FetchType::RegisterInterest->value => /** @lang PostgreSQL */ <<<EOL
+    update people
+    set preference = :a
+    where people_id = :t
+    returning true;
+EOL,
+        FetchType::FetchPersonTeam->value => /** @lang PostgreSQL */ <<<EOL
+    select 
+        t.name, t.symbol, t.team_id
+    from people
+        join teams t using(team_id)
+    where people_id = :t;
+EOL,
+        FetchType::FetchPerson->value => /** @lang PostgreSQL */ <<<EOL
+    select people_id, name, login, primary_group, secondary_group, preference, team_id, db_id
+    from people
+    where people_id = :t;
+EOL,
+        FetchType::FetchTeamMembers->value => /** @lang PostgreSQL */ <<<EOL
+    select 
+         db_id, name, login
+    from people
+    where team_id = :t;
+EOL,
+        FetchType::FetchTeamStatus->value => <<<EOL
+    select status
+    from teams_status;
+EOL,
+        FetchType::SetTeamsStatus->value => <<<EOL
+    update teams_status
+    set status = :a
+    returning true;
 EOL
     ];
 
@@ -465,6 +531,11 @@ EOL
         FetchType::StartRound->value,
         FetchType::EndRound->value,
         FetchType::LastSeen->value,
+        FetchType::MovePersonToTeam->value,
+        FetchType::RegisterInterest->value,
+        FetchType::FetchPerson->value,
+        FetchType::FetchPersonTeam->value,
+        FetchType::SetTeamsStatus->value
     ];
 
     $params = [];
@@ -494,6 +565,20 @@ function verify_team(): ?array
         return null;
     }
     return $teamRow;
+}
+
+function verify_person(): ?array
+{
+    $person = get_param('people_id');
+    if (!$person || !preg_match('/^[A-Fa-f0-9]{8}$/', $person)) {
+        return null;
+    }
+
+    $personRow = fetch_db_data(FetchType::FetchPerson, team_id: strtolower($person));
+    if (!$personRow) {
+        return null;
+    }
+    return $personRow;
 }
 
 function respond_json($data,$code=200): void
@@ -538,13 +623,13 @@ function sanitize_team_name(string $name, int $maxLen=32): string
     return $clean;
 }
 
-function html_base(): void
+function html_base($html_name): void
 {
     // Serve quiz.html (static) so JS/CSS can load separately
-    $htmlPath = __DIR__ . '/quiz.html';
+    $htmlPath = __DIR__ . '/' . $html_name;
     if (!is_file($htmlPath)) {
         http_response_code(500);
-        echo 'quiz.html is missing';
+        echo "$html_name is missing";
         exit;
     }
     header('Content-Type: text/html; charset=utf-8');
@@ -699,6 +784,25 @@ function update_round(): array
     ];
 }
 
+function fetch_people(): array
+{
+    return [
+        'people' => fetch_db_data(FetchType::FetchPeople)
+    ];
+}
+
+function move_person()
+{
+    $peopleId = get_param('person');
+    $team = get_param('new_team');
+    if(!$team) {
+        respond_forbidden('target team id not provided');
+    }
+    return [
+        'ok' => fetch_db_data(FetchType::MovePersonToTeam, team_id: $team, letter: $peopleId)
+    ];
+}
+
 function define_data(): array
 {
     $payload = json_decode(file_get_contents('php://input') ?: '[]', true);
@@ -766,10 +870,11 @@ function define_people(): array
     try{
         if(isset($payload['people'])) {
             pg()->exec('DELETE FROM people;');
-            $ins=pg()->prepare('INSERT INTO people(people_id, name, login, primary_group, secondary_group) VALUES(:id, :name, :login, :prim, :sec)');
+            $ins=pg()->prepare('INSERT INTO people(people_id, db_id, name, login, primary_group, secondary_group) VALUES(:id, :dbid, :name, :login, :prim, :sec)');
             foreach($payload['people'] as $p) {
                 $ins->execute([
                     ':id'=>$p['people_id'],
+                    ':dbid'=>$p['db_id'],
                     ':name'=>$p['name']??null,
                     ':login'=>$p['login']??null,
                     ':prim'=>$p['primary']??null,
@@ -799,7 +904,7 @@ function reset_data(): array
             with rr as (
                 select team_id, rank() over (order by team_id) as r from teams
             ) 
-            UPDATE teams SET cooldown_end=NOW(), cooldown_length=30, last_seen=null, name='Team ' || r
+            UPDATE teams SET cooldown_end=NOW(), cooldown_length=30, last_seen=null, name='Team ' || symbol
             from rr
             where rr.team_id = teams.team_id;
 EOL
@@ -834,61 +939,167 @@ function create_random_teams(): array
     }
 }
 
+function set_teams_status(): array
+{
+    $status = (int)get_param('status', 0);
+    return [
+        'ok' => fetch_db_data(FetchType::SetTeamsStatus, answer: $status)
+    ];
+}
+
+//People commands endpoints
+function person_status($peopleRow): array
+{
+    return [
+        'person' => fetch_db_data(FetchType::FetchPerson, team_id: $peopleRow['people_id']),
+        'status' => fetch_db_data(FetchType::FetchTeamStatus)
+    ];
+}
+
+function register_interest($peopleRow) :array
+{
+    return [
+        'ok' => fetch_db_data(FetchType::RegisterInterest, team_id: $peopleRow['people_id'], answer: 'R')
+    ];
+}
+
+function get_person_team($peopleRow): array
+{
+    $team = fetch_db_data(FetchType::FetchPersonTeam, team_id: $peopleRow['people_id']);
+
+    $fullPath = __DIR__ . '/flags/' . $team['symbol'] . '.svg';
+    $image = '';
+    if (is_file($fullPath)) {
+        $image = 'data:image/svg+xml;base64,' . base64_encode(file_get_contents($fullPath));
+    }
+    return [
+        'team' => $team,
+        'teammates' => fetch_db_data(FetchType::FetchTeamMembers, team_id: $team['team_id']),
+        'symbol' => $image
+    ];
+}
+
+
 // ======== BOOTSTRAP ========
-$teamRow = verify_team();
-if(!$teamRow) {
+
+function handle_team_commands($cmd, $teamRow)
+{
+    $json = null;
+    switch ($cmd) {
+        case Commands::Status:
+            $json = get_status($teamRow);
+            break;
+        case Commands::Guess:
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                respond_forbidden();
+            }
+            $json = make_guess($teamRow);
+            break;
+        case Commands::Rename:
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                respond_forbidden();
+            }
+            $json = rename_team($teamRow);
+            break;
+        case Commands::Round:
+            if (!$teamRow['is_admin']) {
+                respond_forbidden();
+            }
+            $json = update_round();
+            break;
+        case Commands::Define:
+            if (!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+                respond_forbidden();
+            }
+            $json = define_data();
+            break;
+        case Commands::Reset:
+            if (!$teamRow['is_admin']) {
+                respond_forbidden();
+            }
+            $json = reset_data();
+            break;
+        case Commands::People:
+            if (!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+                respond_forbidden();
+            }
+            $json = define_people();
+            break;
+        case Commands::MakeTeams:
+            if (!$teamRow['is_admin']) {
+                respond_forbidden();
+            }
+            $json = create_random_teams();
+            break;
+        case Commands::GetPeople:
+            if (!$teamRow['is_admin']) {
+                respond_forbidden();
+            }
+            $json = fetch_people();
+            break;
+        case Commands::MovePerson:
+            if (!$teamRow['is_admin']) {
+                respond_forbidden();
+            }
+            $json = move_person();
+            break;
+        case Commands::SetStatus:
+            if (!$teamRow['is_admin']) {
+                respond_forbidden();
+            }
+            $json = set_teams_status();
+            break;
+        default:
+            html_base("quiz.html");
+            exit();
+    }
+    respond_json($json);
+    exit();
+}
+
+function handle_people_commands($cmd, $peopleRow)
+{
+    $json = null;
+    switch ($cmd) {
+        case Commands::PersonStatus:
+            $json = person_status($peopleRow);
+            break;
+        case Commands::Interest:
+            $json = register_interest($peopleRow);
+            break;
+        case Commands::GetTeam:
+            $json = get_person_team($peopleRow);
+            break;
+        default:
+            html_base("register.html");
+            exit();
+    }
+    respond_json($json);
+    exit();
+}
+
+$cmd = strtolower((string)get_param('cmd', 'no_command'));
+try {
+    $cmdEnum = Commands::from($cmd);
+}
+catch(Throwable $e){
     respond_forbidden();
 }
-$cmd = strtolower((string)get_param('cmd', ''));
-$json = null;
-switch ($cmd) {
-    case 'status':
-        $json = get_status($teamRow);
-        break;
-    case 'guess':
-        if($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            respond_forbidden();
-        }
-        $json = make_guess($teamRow);
-        break;
-    case 'rename':
-        if($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            respond_forbidden();
-        }
-        $json = rename_team($teamRow);
-        break;
-    case 'round':
-        if(!$teamRow['is_admin']) {
-            respond_forbidden();
-        }
-        $json = update_round();
-        break;
-    case 'define':
-        if(!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            respond_forbidden();
-        }
-        $json = define_data();
-        break;
-    case 'reset':
-        if(!$teamRow['is_admin']) {
-            respond_forbidden();
-        }
-        $json = reset_data();
-        break;
-    case 'people':
-        if(!$teamRow['is_admin'] || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            respond_forbidden();
-        }
-        $json = define_people();
-        break;
-    case 'make_teams':
-        if(!$teamRow['is_admin']) {
-            respond_forbidden();
-        }
-        $json = create_random_teams();
-        break;
-    default:
-        html_base();
-        exit();
+$isTeam = (bool)get_param('team');
+$isPerson = (bool)get_param('people_id');
+
+if($isTeam) {
+    $teamRow = verify_team();
+    if (!$teamRow) {
+        respond_forbidden();
+    }
+    handle_team_commands($cmdEnum, $teamRow);
 }
-respond_json($json);
+elseif($isPerson) {
+    $personRow = verify_person();
+    if (!$personRow) {
+        respond_forbidden();
+    }
+    handle_people_commands($cmdEnum, $personRow);
+}
+respond_forbidden();
