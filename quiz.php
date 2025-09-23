@@ -388,8 +388,8 @@ EOL,
         moved_people as (
             select ordered_pool.primary_group as from_group, groups_to_expand.primary_group as to_group, people_id, rnd
             from ordered_pool, groups_to_expand, n_people_available
-            where ordered_pool.secondary_group = groups_to_expand.primary_group or ordered_pool.secondary_group = 0
-                and r <= groups_to_expand.s and r > groups_to_expand.p and r <= n_available
+            where (ordered_pool.secondary_group = groups_to_expand.primary_group or ordered_pool.secondary_group = 0)
+                    and r <= groups_to_expand.s and r > groups_to_expand.p and r <= n_available
         ),
         ready_for_teams as (
             select people_id, primary_group, ppl.rnd
@@ -404,14 +404,20 @@ EOL,
             select primary_group, people_id, rank() over (partition by primary_group order by rnd) as r
             from ready_for_teams
         ),
-        t as (
+        empty_teams as (
             select team_id, rank() over (order by team_id) as tr
-            from teams
-            where not is_admin
+            from (
+                select team_id, count(people_id) as c
+                from teams
+                left join people using(team_id)
+                where not is_admin
+                group by team_id
+            ) t
+            where t.c = 0
         ),
         update_src as (
             select people_id, team_id, primary_group
-            from t
+            from empty_teams
                  join teams_src on r = tr
             order by team_id, primary_group
         )
@@ -421,6 +427,7 @@ EOL,
     --select * from groups_to_expand_all;
     --select * from groups_to_expand;
     --select * from moved_people;
+    --select * from empty_teams;
     update people
     set team_id = update_src.team_id
     from update_src

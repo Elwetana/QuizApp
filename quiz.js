@@ -521,20 +521,15 @@
     // Remove admin team from the list
     rows = rows.filter(team => team.team_id !== TEAM);
     
-    // Add virtual "No team" entry if there are unassigned people
-    if (peopleData && peopleData.people && Array.isArray(peopleData.people)) {
-      const unassignedPeople = peopleData.people.filter(p => !p.team_id || p.team_id === '' || p.team_id === null);
-      if (unassignedPeople.length > 0) {
-        rows.push({
-          team_id: null,
-          name: 'No Team',
-          age_last_seen: null,
-          is_virtual: true
-        });
-      }
-    }
-    
     if (!rows.length) { mount.textContent = 'No teams.'; return; }
+    
+    // Add virtual "No team" entry 
+    rows.push({
+      team_id: null,
+      name: 'No Team',
+      age_last_seen: null,
+      is_virtual: true
+    });
     
     const container = document.createElement('div');
     container.className = 'teams-container';
