@@ -349,7 +349,7 @@ EOL,
         ppl as (
             select people_id, primary_group, secondary_group, random() as rnd
             from people
-            where preference = 'R'
+            where preference = 'R' and team_id is null
         ),
         prim as (
             select count(people_id) as n, primary_group
