@@ -551,13 +551,25 @@
     try {
       const rows = data && Array.isArray(data.overall_totals) ? data.overall_totals : [];
       const totals = new Map();
+      const lastRoundScores = new Map();
+      
       for (const r of rows) {
         const id = r.team_id;
         const sc = Number(r.score) || 0;
+        const round = Number(r.round);
         totals.set(id, (totals.get(id) || 0) + sc);
+        
+        // Store last round scores
+        if (round === Number(lastRound.round)) {
+          lastRoundScores.set(id, Number(r.round_score) || 0);
+        }
       }
       const leaderboard = Array.from(totals.entries())
-        .map(([team_id, total]) => ({ team_id, total }))
+        .map(([team_id, total]) => ({ 
+          team_id, 
+          total, 
+          lastRoundScore: lastRoundScores.get(team_id) || 0 
+        }))
         .sort((a, b) => b.total - a.total);
       if (leaderboard.length) {
         finishedSlides.push({ kind: 'leaderboard', leaderboard });
@@ -648,8 +660,14 @@
         thead.appendChild(trh);
         table.appendChild(thead);
         const tbody = document.createElement('tbody');
-        chunk.forEach(r => {
+        chunk.forEach((r, index) => {
           const tr = document.createElement('tr');
+          const globalIndex = i + index; // Calculate global position in the full list
+          const isUpperHalf = globalIndex < Math.ceil(slide.rows.length / 2);
+          const hasScore = r.round_score > 0;
+          if (isUpperHalf && hasScore) {
+            tr.classList.add('upper-half');
+          }
           const tdTeam = document.createElement('td'); tdTeam.textContent = r.team; tr.appendChild(tdTeam);
           const tdScore = document.createElement('td'); tdScore.textContent = String(r.round_score); tdScore.className = 'score'; tr.appendChild(tdScore);
           tbody.appendChild(tr);
@@ -714,13 +732,15 @@
           const thead = document.createElement('thead');
           const trh = document.createElement('tr');
           const th1 = document.createElement('th'); th1.textContent = 'Team'; trh.appendChild(th1);
-          const th2 = document.createElement('th'); th2.textContent = 'Total Score'; trh.appendChild(th2);
+          const th2 = document.createElement('th'); th2.textContent = 'Last Round'; trh.appendChild(th2);
+          const th3 = document.createElement('th'); th3.textContent = 'Total Score'; trh.appendChild(th3);
           thead.appendChild(trh);
           table.appendChild(thead);
           const tbody = document.createElement('tbody');
           chunk.forEach((t, index) => {
             const tr = document.createElement('tr');
             const tdTeam = document.createElement('td'); tdTeam.textContent = t.team_id; tr.appendChild(tdTeam);
+            const tdLastRound = document.createElement('td'); tdLastRound.textContent = String(t.lastRoundScore); tdLastRound.className = 'score'; tr.appendChild(tdLastRound);
             const tdScore = document.createElement('td'); tdScore.textContent = String(t.total); tdScore.className = 'score'; tr.appendChild(tdScore);
             tbody.appendChild(tr);
           });

@@ -139,7 +139,9 @@ body {
 
 /* Finished round results table */
 .fin-results { display: flex; flex-direction: row; align-items: flex-start; justify-content: center; gap: 2rem; }
-.fin-results table { width: auto; max-width: 100%; border-collapse: collapse; table-layout: auto; font-size: clamp(16px, min(6cqh, 5cqw), 48px); font-weight: 100;}
+.fin-results table { width: auto; max-width: 100%; border-collapse: collapse; table-layout: auto; font-size: clamp(16px, min(6cqh, 5cqw), 36px); font-weight: 100;}
 .fin-results th, .fin-results td { border-bottom: 1px solid #1f2937; padding: .5rem; text-align: left; }
 .fin-results th { font-weight: 400; }
 .fin-results td.score { text-align: right; font-variant-numeric: tabular-nums; }
+.fin-results tr.upper-half { background-color: rgba(34, 197, 94, 0.1); border-left: 3px solid #22c55e; }
+.fin-results tr.upper-half td { font-weight: 600; }
