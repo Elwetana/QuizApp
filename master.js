@@ -291,6 +291,8 @@
     let imageData = '';
     
     ["question", "hint1", "hint2"].forEach(qName => {
+      if (!(qName in q))
+        return;
       let qText = q[qName];
       if (qText && qText !== 'not_found' && qText.length > 0 && qText.length <= 1000) {
         textQuestions[qName] = qText;

@@ -894,7 +894,8 @@
 
     // Get the last round number for display
     const roundList = Array.from(rounds).sort((a, b) => a - b);
-    const lastRound = roundList.length > 0 ? roundList[roundList.length - 1] : null;
+    //const lastRound = roundList.length > 0 ? roundList[roundList.length - 1] : null;
+    const lastRound = Math.max(...data.all_rounds.filter(r => r.active === 2).map(r => r.round));
     const teamList = Object.values(totals).sort((a, b) => b.total - a.total);
 
     let html = '<table><thead><tr><th>Rank</th><th>Team</th>';
@@ -991,7 +992,7 @@
       const letter = answer.letter || '';
       const answered = (answer.answered || '').toString();
       const points = Number(answer.points);
-      const value = Number(answer.value);
+      const value = 4; //Number(answer.value);
       
       // Format points display
       let pointsDisplay = points.toString();
