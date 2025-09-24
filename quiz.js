@@ -1054,16 +1054,25 @@
     const startBtn = document.getElementById('startRound');
     const finishBtn = document.getElementById('finishRound');
     const closeBtn = document.getElementById('closeRound');
-    [startBtn, finishBtn, closeBtn].forEach(b => b && b.classList.remove('suggest'));
+    const unlockBtn = document.getElementById('unlockRound');
+    [startBtn, finishBtn, closeBtn, unlockBtn].forEach(b => b && b.classList.remove('suggest'));
 
     const rounds = Array.isArray(data.all_rounds) ? data.all_rounds.slice() : [];
-    // If any round is active==1, suggest finishing that round
     const active = rounds.find(r => Number(r.active) === 1);
+    
     if (active) {
       setSelectedRound(Number(active.round));
-      if (finishBtn) finishBtn.classList.add('suggest');
+      // Check if round is locked (master_lock == 1)
+      if (active.master_lock == 1) {
+        // Round is started but locked, suggest unlocking
+        if (unlockBtn) unlockBtn.classList.add('suggest');
+      } else {
+        // Round is started and unlocked, suggest finishing
+        if (finishBtn) finishBtn.classList.add('suggest');
+      }
       return;
     }
+    
     // Otherwise, suggest starting the first not-started round (active==0)
     const pending = rounds.filter(r => Number(r.active) === 0).sort((a,b)=>Number(a.round)-Number(b.round));
     if (pending.length) {
@@ -1368,6 +1377,7 @@
   $('#startRound') && $('#startRound').addEventListener('click', () => setActive(1));
   $('#finishRound') && $('#finishRound').addEventListener('click', () => setActive(2));
   $('#closeRound') && $('#closeRound').addEventListener('click', () => setActive(0));
+  $('#unlockRound') && $('#unlockRound').addEventListener('click', () => setActive(3));
   $('#resetBtn') && $('#resetBtn').addEventListener('click', resetAll);
   $('#makeTeamsBtn') && $('#makeTeamsBtn').addEventListener('click', makeRandomTeams);
   $('#status0Btn') && $('#status0Btn').addEventListener('click', () => setStatus(0));

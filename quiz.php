@@ -58,6 +58,7 @@ enum FetchType: int
     case FetchTeamMembers = 26;
     case FetchTeamStatus = 27;
     case SetTeamsStatus = 28;
+    case MasterUnlock = 29;
 }
 
 function pg(): ?PDO
@@ -98,7 +99,7 @@ EOL,
     ORDER BY time DESC;
 EOL,
         FetchType::FetchRounds->value => <<<EOL
-    SELECT round, active, name, value 
+    SELECT round, active, name, value, master_lock
     FROM rounds;
 EOL,
         FetchType::FetchScoreTotal->value => <<<EOL
@@ -197,7 +198,8 @@ EOL,
     update rounds
     set 
         started = case when can_start then now() else started end,
-        active = case when can_start then 1 else active end
+        active = case when can_start then 1 else active end,
+        master_lock = case when can_start then 1 else 0 end
     from v
     where v.round = rounds.round
     returning can_start;
@@ -524,6 +526,14 @@ EOL,
     update teams_status
     set status = :a
     returning true;
+EOL,
+        FetchType::MasterUnlock->value => /** @lang PostgreSQL */ <<<EOL
+    update rounds
+    set 
+        started = now(),
+        master_lock = 0
+    where round = :t
+    returning true;
 EOL
     ];
 
@@ -542,7 +552,8 @@ EOL
         FetchType::RegisterInterest->value,
         FetchType::FetchPerson->value,
         FetchType::FetchPersonTeam->value,
-        FetchType::SetTeamsStatus->value
+        FetchType::SetTeamsStatus->value,
+        FetchType::MasterUnlock
     ];
 
     $params = [];
@@ -696,13 +707,18 @@ function get_questions($teamRow): array
 
 function get_status($teamRow): array
 {
+    $activeRound = fetch_db_data(FetchType::GetActiveRound);
+    $isMasterLock = $activeRound['master_lock'] == 1;
+    $isAdmin = $teamRow['is_admin'];
+    $questions = (!$isMasterLock || $isAdmin) ? get_questions($teamRow) : [];
+
     $ret = [
         'team'           => $teamRow,
-        'current_round'  => fetch_db_data(FetchType::GetActiveRound),
+        'current_round'  => $activeRound,
         'all_rounds'     => fetch_db_data(FetchType::FetchRounds),
         'overall_totals' => fetch_db_data(FetchType::FetchScoreTotal),
         'my_actions'     => fetch_db_data(FetchType::FetchActions, team_id: $teamRow['team_id']),
-        'questions'      => get_questions($teamRow)
+        'questions'      => $questions
     ];
     if($teamRow['is_admin']) {
         $ret['round_progress'] = fetch_db_data(FetchType::ProgressRound);
@@ -773,6 +789,9 @@ function update_round(): array
             break;
         case 2:
             $a = fetch_db_data(FetchType::EndRound, team_id: $round);
+            break;
+        case 3:
+            $a = fetch_db_data(FetchType::MasterUnlock, team_id: $round);
             break;
         default:
             respond_forbidden('Invalid active value');
