@@ -103,6 +103,7 @@ class QuizRegistration {
 
     updateUI() {
         this.hideAllPanels();
+        this.updateGreeting();
 
         switch (this.currentStatus) {
             case 0:
@@ -116,6 +117,18 @@ class QuizRegistration {
                 break;
             default:
                 this.showError(`Unknown status: ${this.currentStatus}`);
+        }
+    }
+
+    updateGreeting() {
+        const greetingElement = document.getElementById('greeting');
+        const personNameElement = document.getElementById('person-name');
+        
+        if (this.personData && this.personData.name) {
+            personNameElement.textContent = this.personData.name;
+            greetingElement.classList.remove('hidden');
+        } else {
+            greetingElement.classList.add('hidden');
         }
     }
 
