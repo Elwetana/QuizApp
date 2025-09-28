@@ -1,10 +1,5 @@
 # Warhorse Pub Quiz 2025
 
-## Intro
-
-
-
-
 ## The Basics
 
 **5 rounds, 5 questions each (A-E)**. This year's theme is video games with lateral thinking puzzles.
@@ -34,7 +29,7 @@
 
 ## Strategy
 1. **Answer fast** when you have a good guess
-2. **Re-answer after hints** if they help
+2. **Re-answer after hints** if they change your answer
 3. **Study images carefully** - they get easier but you lose the original
 4. **Don't guess randomly** - wrong answers get nothing
 
